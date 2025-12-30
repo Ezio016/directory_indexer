@@ -62,19 +62,20 @@ class DirectoryIndexer:
         
         return items
     
-    def generate_json(self, output_path="directory_index.json"):
+    def generate_json(self, output_dir):
         """Generate JSON output"""
         data = {
             "root": str(self.root_path),
             "hierarchy": self.hierarchy
         }
         
+        output_path = os.path.join(output_dir, "directory_index.json")
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         
         print(f"✓ JSON file created: {output_path}")
     
-    def generate_xml(self, output_path="directory_index.xml"):
+    def generate_xml(self, output_dir):
         """Generate XML output"""
         root = ET.Element("directory_index")
         root.set("root_path", str(self.root_path))
@@ -100,12 +101,13 @@ class DirectoryIndexer:
         # Pretty print XML
         xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
         
+        output_path = os.path.join(output_dir, "directory_index.xml")
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(xml_str)
         
         print(f"✓ XML file created: {output_path}")
     
-    def generate_txt(self, output_path="directory_index.txt"):
+    def generate_txt(self, output_dir):
         """Generate indented text output"""
         def format_item(item, depth=0):
             indent = "  " * depth
@@ -117,6 +119,7 @@ class DirectoryIndexer:
             
             return lines
         
+        output_path = os.path.join(output_dir, "directory_index.txt")
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(f"Directory Index: {self.root_path}\n")
             f.write("=" * 80 + "\n\n")
@@ -127,7 +130,7 @@ class DirectoryIndexer:
         
         print(f"✓ TXT file created: {output_path}")
     
-    def process(self, json_output=True, xml_output=True, txt_output=True):
+    def process(self, json_output=True, xml_output=True, txt_output=True, output_base_dir="."):
         """Process directory and generate all requested outputs"""
         print(f"Scanning directory: {self.root_path}")
         self.hierarchy = self.scan_directory()
@@ -138,14 +141,20 @@ class DirectoryIndexer:
         
         print(f"Found {self._count_items(self.hierarchy)} items")
         
+        # Create output folder with format "Items_in_[FolderName]"
+        folder_name = self.root_path.name
+        output_dir = os.path.join(output_base_dir, f"Items_in_{folder_name}")
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"\nCreating output folder: {output_dir}")
+        
         if json_output:
-            self.generate_json()
+            self.generate_json(output_dir)
         
         if xml_output:
-            self.generate_xml()
+            self.generate_xml(output_dir)
         
         if txt_output:
-            self.generate_txt()
+            self.generate_txt(output_dir)
     
     def _count_items(self, items):
         """Count total items recursively"""
@@ -196,16 +205,12 @@ def main():
     # Create indexer
     indexer = DirectoryIndexer(target_dir)
     
-    # Change to output directory if specified
-    if args.output_dir != ".":
-        os.makedirs(args.output_dir, exist_ok=True)
-        os.chdir(args.output_dir)
-    
     # Process and generate outputs
     indexer.process(
         json_output=not args.no_json,
         xml_output=not args.no_xml,
-        txt_output=not args.no_txt
+        txt_output=not args.no_txt,
+        output_base_dir=args.output_dir
     )
     
     print("\n✅ Done!")

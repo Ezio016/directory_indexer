@@ -116,10 +116,12 @@ Directory Index: /path/to/directory
 
 ## Output Files
 
-By default, the script creates three files in the current directory:
+The script automatically creates a folder named `Items_in_[FolderName]` (where FolderName is the name of the directory you're indexing) and places three files inside:
 - `directory_index.json`
 - `directory_index.xml`
 - `directory_index.txt`
+
+**Example:** If you index a folder called `MyProject`, the output folder will be `Items_in_MyProject/`
 
 ## Requirements
 
