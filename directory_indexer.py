@@ -5,13 +5,12 @@ Creates hierarchical numbering (IP-style) for directory contents
 Outputs stored inside the indexed folder
 
 Usage:
-    reindex /path/to/folder           # Generate all formats (TXT, JSON, XML)
-    reindex /path/to/folder -t        # TXT only
-    reindex /path/to/folder -j        # JSON only
-    reindex /path/to/folder -x        # XML only
-    reindex /path/to/folder -w        # All formats + new ReadMe.txt
-    reindex /path/to/folder -t -w     # TXT + ReadMe.txt
-    reindex /path/to/folder -u        # Update (same as no flag)
+    reindex /path/to/folder              # All formats (TXT, JSON, XML)
+    reindex /path/to/folder -t           # TXT only
+    reindex /path/to/folder -j           # JSON only
+    reindex /path/to/folder -x           # XML only
+    reindex /path/to/folder -r "Name"    # Use custom name in output
+    reindex /path/to/folder -u           # Update existing index in folder
 """
 
 import os
@@ -147,76 +146,14 @@ def generate_xml(data: Dict[str, Any]) -> str:
     return xml_str
 
 
-def generate_readme(folder_name: str, item_count: int, hierarchy: List[Dict]) -> str:
-    """Generate ReadMe.txt with folder overview"""
-    
-    def count_types(items):
-        dirs = 0
-        files = 0
-        for item in items:
-            if item["type"] == "directory":
-                dirs += 1
-                sub_dirs, sub_files = count_types(item.get("children", []))
-                dirs += sub_dirs
-                files += sub_files
-            else:
-                files += 1
-        return dirs, files
-    
-    dir_count, file_count = count_types(hierarchy)
-    
-    top_items = []
-    for item in hierarchy[:10]:
-        type_marker = "[D]" if item["type"] == "directory" else "[F]"
-        top_items.append(f"  {item['number']}. {type_marker} {item['name']}")
-    
-    if len(hierarchy) > 10:
-        top_items.append(f"  ... and {len(hierarchy) - 10} more items")
-    
-    readme = f"""ReadMe - {folder_name}
-{'=' * 60}
-
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-SUMMARY
--------
-Total Items: {item_count:,}
-Directories: {dir_count:,}
-Files:       {file_count:,}
-
-TOP-LEVEL CONTENTS
-------------------
-{chr(10).join(top_items)}
-
-INDEX FILES
------------
-- directory_index.txt  : Full hierarchical listing
-- directory_index.json : Machine-readable JSON format
-- directory_index.xml  : XML format
-
-NUMBERING SCHEME
-----------------
-Items are numbered hierarchically (e.g., 1.2.3):
-- First number: position at root level
-- Subsequent numbers: position within parent directory
-- [D] = Directory, [F] = File
-
-Example:
-  1. [D] Documents
-    1.1. [F] report.pdf
-    1.2. [D] Archive
-      1.2.1. [F] old_data.zip
-"""
-    return readme
-
-
 # ==================== DIRECTORY INDEXER ====================
 
 class DirectoryIndexer:
     """Main indexer - outputs stored inside indexed folder"""
     
-    def __init__(self, root_path: str):
+    def __init__(self, root_path: str, display_name: str = None):
         self.root_path = Path(root_path).resolve()
+        self.display_name = display_name or self.root_path.name
         self.hierarchy = []
         self.pipeline = HybridPipeline()
         self.item_count = 0
@@ -235,14 +172,23 @@ class DirectoryIndexer:
         print(f"\nFound {self.item_count:,} items")
         return self.hierarchy
     
-    def generate_outputs(self, formats: Dict[str, bool], write_readme: bool = False):
+    def check_existing(self) -> Dict[str, bool]:
+        """Check which index files already exist in the folder"""
+        existing = {
+            'txt': (self.root_path / "directory_index.txt").exists(),
+            'json': (self.root_path / "directory_index.json").exists(),
+            'xml': (self.root_path / "directory_index.xml").exists()
+        }
+        return existing
+    
+    def generate_outputs(self, formats: Dict[str, bool]):
         """Generate output files inside the indexed folder"""
         if not self.hierarchy:
             print("No data. Run scan() first.")
             return
         
         data = {
-            "root": str(self.root_path),
+            "root": self.display_name,
             "hierarchy": self.hierarchy
         }
         
@@ -275,18 +221,6 @@ class DirectoryIndexer:
             print(f"  Created: directory_index.xml")
             created_files.append(xml_path)
         
-        if write_readme:
-            readme_content = generate_readme(
-                self.root_path.name, 
-                self.item_count, 
-                self.hierarchy
-            )
-            readme_path = output_dir / "ReadMe.txt"
-            with open(readme_path, 'w', encoding='utf-8') as f:
-                f.write(readme_content)
-            print(f"  Created: ReadMe.txt")
-            created_files.append(readme_path)
-        
         return created_files
 
 
@@ -299,12 +233,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  reindex /path/to/folder           All formats (TXT, JSON, XML)
-  reindex /path/to/folder -t        TXT only
-  reindex /path/to/folder -j        JSON only
-  reindex /path/to/folder -x        XML only
-  reindex /path/to/folder -w        All formats + ReadMe.txt
-  reindex /path/to/folder -t -w     TXT + ReadMe.txt
+  reindex /path/to/folder              All formats (TXT, JSON, XML)
+  reindex /path/to/folder -t           TXT only
+  reindex /path/to/folder -j           JSON only
+  reindex /path/to/folder -x           XML only
+  reindex /path/to/folder -r "Name"    Use custom name in output
+  reindex /path/to/folder -u           Update existing index files
+  reindex /path/to/folder -u -t        Update TXT only
 """
     )
     
@@ -333,15 +268,15 @@ Examples:
     )
     
     parser.add_argument(
-        "-w",
-        action="store_true",
-        help="Write ReadMe.txt"
+        "-r",
+        metavar="NAME",
+        help="Custom name for the directory in output"
     )
     
     parser.add_argument(
         "-u",
         action="store_true",
-        help="Update existing index"
+        help="Update existing index files (checks parent folder only)"
     )
     
     args = parser.parse_args()
@@ -365,12 +300,32 @@ Examples:
         print(f"Error: Not a directory: {target_dir}")
         return 1
     
+    # Create indexer with optional custom name
+    indexer = DirectoryIndexer(target_dir, display_name=args.r)
+    
     # Determine formats
-    # If any specific format is specified, use only those
-    # Otherwise, generate all formats
     specific_format = args.t or args.j or args.x
     
-    if specific_format:
+    if args.u:
+        # Update mode: check what exists and update those
+        existing = indexer.check_existing()
+        
+        if specific_format:
+            # Update only specified formats
+            formats = {
+                'txt': args.t,
+                'json': args.j,
+                'xml': args.x
+            }
+        else:
+            # Update existing files, or create all if none exist
+            if any(existing.values()):
+                formats = existing
+                print(f"Updating existing: {', '.join(k.upper() for k, v in existing.items() if v)}")
+            else:
+                formats = {'txt': True, 'json': True, 'xml': True}
+                print("No existing index found, creating all formats")
+    elif specific_format:
         formats = {
             'txt': args.t,
             'json': args.j,
@@ -384,15 +339,10 @@ Examples:
             'xml': True
         }
     
-    # Create indexer and run
-    indexer = DirectoryIndexer(target_dir)
-    
+    # Run
     try:
         indexer.scan()
-        indexer.generate_outputs(
-            formats=formats,
-            write_readme=args.w
-        )
+        indexer.generate_outputs(formats=formats)
         print("\nDone!")
         
     except KeyboardInterrupt:

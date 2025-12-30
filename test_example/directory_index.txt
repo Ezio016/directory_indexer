@@ -1,5 +1,5 @@
-Directory Index: /Users/myat.min.thant/Dropbox/Mac/Desktop/VibeCodingHV/DirHierarchy/test_example
-Generated: 2025-12-30 12:48:03
+Directory Index: test_example
+Generated: 2025-12-30 12:53:19
 ============================================================
 
 1. [D] level1
@@ -9,8 +9,5 @@ Generated: 2025-12-30 12:48:03
   1.2. [D] level2b
     1.2.1. [F] document.txt
   1.3. [F] readme.md
-2. [F] directory_index.json
-3. [F] directory_index.txt
-4. [F] directory_index.xml
-5. [F] ReadMe.txt
-6. [F] root_file.txt
+2. [F] directory_index.txt
+3. [F] root_file.txt
