@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="DirIndex">
     
-    <title>Directory Indexer - Standalone</title>
+    <title>Directory Indexer - Pipes & Filters Architecture</title>
     <link rel="manifest" href="app/static/manifest.json">
     <link rel="apple-touch-icon" href="app/static/icon-192.png">
     
@@ -204,6 +204,27 @@
             color: #856404;
             font-size: 0.9em;
         }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+            display: none;
+        }
+        
+        .progress-bar.show {
+            display: block;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s;
+        }
     </style>
 </head>
 <body>
@@ -211,7 +232,7 @@
         <div class="header">
             <div class="app-icon">📁</div>
             <h1>Directory Indexer</h1>
-            <p class="subtitle">Index files on YOUR device</p>
+            <p class="subtitle">Pipes & Filters Architecture + Event-Driven UI</p>
         </div>
         
         <div class="info-box">
@@ -230,6 +251,10 @@
             <button class="folder-btn" id="selectBtn">
                 📂 Select Folder from Your Device
             </button>
+            
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
             
             <div class="selected-folder" id="selectedInfo">
                 <strong>Selected:</strong> <span id="folderName"></span><br>
@@ -263,223 +288,92 @@
     </div>
     
     <script>
-        let selectedFiles = [];
-        let folderName = '';
-        let hierarchy = [];
+        // ==================== EVENT BUS (Event-Driven) ====================
         
-        // Check browser compatibility
-        if (!('showDirectoryPicker' in window)) {
-            // Fallback for browsers that don't support showDirectoryPicker
-            document.getElementById('compatWarning').style.display = 'block';
-            // Use file input as fallback
-            setupFileInputFallback();
-        }
-        
-        document.getElementById('selectBtn').addEventListener('click', async () => {
-            try {
-                if ('showDirectoryPicker' in window) {
-                    await selectFolderModern();
-                } else {
-                    document.getElementById('fileInput')?.click();
-                }
-            } catch (error) {
-                if (error.name !== 'AbortError') {
-                    showError('Error selecting folder: ' + error.message);
-                }
+        class EventBus {
+            constructor() {
+                this.listeners = {};
             }
-        });
-        
-        async function selectFolderModern() {
-            try {
-                const dirHandle = await window.showDirectoryPicker();
-                folderName = dirHandle.name;
-                selectedFiles = [];
-                
-                document.getElementById('selectBtn').disabled = true;
-                document.getElementById('selectBtn').textContent = '⏳ Reading folder...';
-                
-                await processDirectory(dirHandle, '');
-                
-                document.getElementById('folderName').textContent = folderName;
-                document.getElementById('fileCount').textContent = selectedFiles.length;
-                document.getElementById('selectedInfo').classList.add('show');
-                document.getElementById('formatOptions').style.display = 'block';
-                document.getElementById('processBtn').style.display = 'block';
-                document.getElementById('selectBtn').disabled = false;
-                document.getElementById('selectBtn').textContent = '📂 Select Another Folder';
-            } catch (error) {
-                document.getElementById('selectBtn').disabled = false;
-                document.getElementById('selectBtn').textContent = '📂 Select Folder from Your Device';
-                if (error.message !== 'File limit exceeded') {
-                    console.error('Error reading folder:', error);
-                }
-            }
-        }
-        
-        async function processDirectory(dirHandle, path) {
-            for await (const entry of dirHandle.values()) {
-                if (entry.name.startsWith('.')) continue;
-                
-                const fullPath = path ? `${path}/${entry.name}` : entry.name;
-                
-                if (entry.kind === 'directory') {
-                    selectedFiles.push({ path: fullPath, isDir: true, name: entry.name });
-                    await processDirectory(entry, fullPath);
-                } else {
-                    selectedFiles.push({ path: fullPath, isDir: false, name: entry.name });
-                }
-                
-                // Update UI every 50 files to prevent freezing
-                if (selectedFiles.length % 50 === 0) {
-                    document.getElementById('selectBtn').textContent = `⏳ Reading... ${selectedFiles.length} items`;
-                    // Yield to UI thread to keep responsive
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                }
-                
-                // Limit to prevent memory issues on mobile
-                if (selectedFiles.length > 10000) {
-                    alert('⚠️ Too many files (>10,000)! Processing stopped.\n\nFor large folders, use the command-line tool on desktop.');
-                    throw new Error('File limit exceeded');
-                }
-            }
-        }
-        
-        function setupFileInputFallback() {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.id = 'fileInput';
-            input.webkitdirectory = true;
-            input.multiple = true;
-            input.style.display = 'none';
-            document.body.appendChild(input);
             
-            input.addEventListener('change', (e) => {
-                const files = Array.from(e.target.files);
-                if (files.length === 0) return;
-                
-                // Check file count limit
-                if (files.length > 10000) {
-                    alert('⚠️ Too many files (>10,000)!\n\nFor large folders, use the command-line tool on desktop.');
-                    return;
+            on(event, callback) {
+                if (!this.listeners[event]) {
+                    this.listeners[event] = [];
                 }
-                
-                // Get folder name from first file
-                folderName = files[0].webkitRelativePath.split('/')[0];
-                
-                selectedFiles = files.map(file => ({
-                    path: file.webkitRelativePath.split('/').slice(1).join('/'),
-                    isDir: false,
-                    name: file.name
-                }));
-                
-                // Add directories
-                const dirs = new Set();
-                files.forEach(file => {
-                    const parts = file.webkitRelativePath.split('/');
-                    for (let i = 1; i < parts.length - 1; i++) {
-                        dirs.add(parts.slice(1, i + 1).join('/'));
-                    }
-                });
-                
-                dirs.forEach(dir => {
-                    selectedFiles.push({
-                        path: dir,
-                        isDir: true,
-                        name: dir.split('/').pop()
+                this.listeners[event].push(callback);
+            }
+            
+            emit(event, data) {
+                if (this.listeners[event]) {
+                    this.listeners[event].forEach(callback => callback(data));
+                }
+            }
+        }
+        
+        const eventBus = new EventBus();
+        
+        // ==================== FILTER FUNCTIONS ====================
+        
+        // Filter 1: Read directory
+        async function filterReadDirectory(dirHandle) {
+            const files = [];
+            
+            async function traverse(handle, path = '') {
+                for await (const entry of handle.values()) {
+                    if (entry.name.startsWith('.')) continue;
+                    
+                    const fullPath = path ? `${path}/${entry.name}` : entry.name;
+                    
+                    files.push({
+                        path: fullPath,
+                        name: entry.name,
+                        isDir: entry.kind === 'directory'
                     });
-                });
-                
-                selectedFiles.sort((a, b) => a.path.localeCompare(b.path));
-                
-                document.getElementById('folderName').textContent = folderName;
-                document.getElementById('fileCount').textContent = selectedFiles.length;
-                document.getElementById('selectedInfo').classList.add('show');
-                document.getElementById('formatOptions').style.display = 'block';
-                document.getElementById('processBtn').style.display = 'block';
-            });
-        }
-        
-        document.getElementById('processBtn').addEventListener('click', generateIndex);
-        
-        function generateIndex() {
-            const btn = document.getElementById('processBtn');
-            btn.disabled = true;
-            btn.textContent = '⏳ Processing...';
-            
-            // Check which formats are selected
-            const genJSON = document.getElementById('checkJSON').checked;
-            const genXML = document.getElementById('checkXML').checked;
-            const genTXT = document.getElementById('checkTXT').checked;
-            
-            if (!genJSON && !genXML && !genTXT) {
-                showError('Please select at least one format to generate!');
-                btn.disabled = false;
-                btn.textContent = '🚀 Generate Index';
-                return;
+                    
+                    // Event-Driven: Emit progress
+                    eventBus.emit('progress', {
+                        step: 'reading',
+                        count: files.length,
+                        message: `Reading... ${files.length} items`
+                    });
+                    
+                    // UI yielding every 50 files
+                    if (files.length % 50 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
+                    
+                    // Safety limit
+                    if (files.length > 10000) {
+                        throw new Error('Too many items! Limit: 10,000 files. Try a smaller folder.');
+                    }
+                    
+                    // Recurse if directory
+                    if (entry.kind === 'directory') {
+                        await traverse(entry, fullPath);
+                    }
+                }
             }
             
-            try {
-                // Build hierarchy
-                hierarchy = buildHierarchy(selectedFiles);
-                
-                // Generate selected formats
-                const outputs = {};
-                if (genJSON) outputs.json = generateJSON();
-                if (genXML) outputs.xml = generateXML();
-                if (genTXT) outputs.txt = generateTXT();
-                
-                // Show result
-                const result = document.getElementById('result');
-                result.className = 'show success';
-                
-                let downloadButtons = '';
-                if (outputs.json) {
-                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.json, 'directory_index.json', 'application/json')">📄 Download JSON</button>`;
-                }
-                if (outputs.xml) {
-                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.xml, 'directory_index.xml', 'application/xml')">📄 Download XML</button>`;
-                }
-                if (outputs.txt) {
-                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.txt, 'directory_index.txt', 'text/plain')">📄 Download TXT</button>`;
-                }
-                
-                // Store outputs globally for download functions
-                window.outputs = outputs;
-                
-                result.innerHTML = `
-                    <h3>✅ Index Generated!</h3>
-                    <p><strong>Folder:</strong> ${folderName}</p>
-                    <p><strong>Items:</strong> ${selectedFiles.length}</p>
-                    <p style="margin-top: 15px;"><strong>Tap to download:</strong></p>
-                    <div style="margin: 10px 0;">
-                        ${downloadButtons}
-                    </div>
-                    ${outputs.txt ? '<div class="preview">' + escapeHtml(outputs.txt) + '</div>' : ''}
-                `;
-                
-            } catch (error) {
-                showError('Error generating index: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '🚀 Generate Index';
-            }
+            await traverse(dirHandle);
+            return files;
         }
         
-        function buildHierarchy(files) {
-            const tree = [];
-            const pathMap = new Map();
-            
-            // Sort files: directories first, then alphabetically
-            const sorted = [...files].sort((a, b) => {
+        // Filter 2: Sort files
+        function filterSort(files) {
+            return [...files].sort((a, b) => {
                 if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
                 return a.path.localeCompare(b.path);
             });
+        }
+        
+        // Filter 3: Build hierarchy with numbering
+        function filterBuildHierarchy(files) {
+            const tree = [];
             
-            sorted.forEach(file => {
+            files.forEach(file => {
                 const parts = file.path.split('/').filter(p => p);
                 let current = tree;
-                let currentPath = '';
                 let numbering = [];
+                let currentPath = '';
                 
                 parts.forEach((part, index) => {
                     currentPath = currentPath ? `${currentPath}/${part}` : part;
@@ -511,17 +405,15 @@
             return tree;
         }
         
-        function generateJSON() {
-            const data = {
-                root: folderName,
-                hierarchy: hierarchy
-            };
+        // Output Filter: Convert to JSON
+        function filterToJSON(data) {
             return JSON.stringify(data, null, 2);
         }
         
-        function generateXML() {
+        // Output Filter: Convert to XML
+        function filterToXML(data) {
             let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-            xml += `<directory_index root_path="${escapeXml(folderName)}">\n`;
+            xml += `<directory_index root_path="${escapeXml(data.root)}">\n`;
             
             function addItems(items, indent = 1) {
                 const spaces = '  '.repeat(indent);
@@ -538,13 +430,14 @@
                 });
             }
             
-            addItems(hierarchy);
+            addItems(data.hierarchy);
             xml += '</directory_index>';
             return xml;
         }
         
-        function generateTXT() {
-            let txt = `Directory Index: ${folderName}\n`;
+        // Output Filter: Convert to TXT
+        function filterToTXT(data) {
+            let txt = `Directory Index: ${data.root}\n`;
             txt += '='.repeat(80) + '\n\n';
             
             function formatItem(item, depth = 0) {
@@ -561,12 +454,296 @@
                 return result;
             }
             
-            hierarchy.forEach(item => {
+            data.hierarchy.forEach(item => {
                 txt += formatItem(item);
             });
             
             return txt;
         }
+        
+        // ==================== PIPELINE CLASS ====================
+        
+        class Pipeline {
+            constructor(name = 'Pipeline') {
+                this.filters = [];
+                this.name = name;
+            }
+            
+            addFilter(filterFunc, filterName = null) {
+                this.filters.push({ func: filterFunc, name: filterName || filterFunc.name });
+                return this;
+            }
+            
+            async execute(input) {
+                let data = input;
+                
+                for (let i = 0; i < this.filters.length; i++) {
+                    const { func, name } = this.filters[i];
+                    
+                    // Event-Driven: Emit step progress
+                    eventBus.emit('pipeline', {
+                        step: i + 1,
+                        total: this.filters.length,
+                        filterName: name,
+                        message: `Step ${i + 1}/${this.filters.length}: ${name}`
+                    });
+                    
+                    // Execute filter
+                    data = await func(data);
+                    
+                    // UI yield
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                
+                return data;
+            }
+        }
+        
+        // ==================== STATE & GLOBALS ====================
+        
+        let selectedFiles = [];
+        let folderName = '';
+        let folderHandle = null;
+        let hierarchy = [];
+        
+        // ==================== EVENT LISTENERS (Event-Driven UI) ====================
+        
+        // Progress event listener
+        eventBus.on('progress', (data) => {
+            const btn = document.getElementById('selectBtn');
+            btn.textContent = `⏳ ${data.message}`;
+            
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            progressBar.classList.add('show');
+            
+            // Estimate progress (rough)
+            const percentage = Math.min((data.count / 100) * 10, 90);
+            progressFill.style.width = `${percentage}%`;
+        });
+        
+        // Pipeline step event listener
+        eventBus.on('pipeline', (data) => {
+            const btn = document.getElementById('processBtn');
+            btn.textContent = `⏳ ${data.message}`;
+            
+            const progressFill = document.getElementById('progressFill');
+            const percentage = (data.step / data.total) * 100;
+            progressFill.style.width = `${percentage}%`;
+        });
+        
+        // Complete event listener
+        eventBus.on('complete', (data) => {
+            const progressBar = document.getElementById('progressBar');
+            progressBar.classList.remove('show');
+            
+            const progressFill = document.getElementById('progressFill');
+            progressFill.style.width = '0%';
+        });
+        
+        // Error event listener
+        eventBus.on('error', (error) => {
+            showError(error.message);
+            
+            const progressBar = document.getElementById('progressBar');
+            progressBar.classList.remove('show');
+            
+            const selectBtn = document.getElementById('selectBtn');
+            selectBtn.disabled = false;
+            selectBtn.textContent = '📂 Select Folder from Your Device';
+            
+            const processBtn = document.getElementById('processBtn');
+            processBtn.disabled = false;
+            processBtn.textContent = '🚀 Generate Index';
+        });
+        
+        // ==================== UI HANDLERS ====================
+        
+        // Check browser compatibility
+        if (!('showDirectoryPicker' in window)) {
+            document.getElementById('compatWarning').style.display = 'block';
+            setupFileInputFallback();
+        }
+        
+        document.getElementById('selectBtn').addEventListener('click', async () => {
+            try {
+                if ('showDirectoryPicker' in window) {
+                    await selectFolderModern();
+                } else {
+                    document.getElementById('fileInput')?.click();
+                }
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    eventBus.emit('error', error);
+                }
+            }
+        });
+        
+        async function selectFolderModern() {
+            try {
+                folderHandle = await window.showDirectoryPicker();
+                folderName = folderHandle.name;
+                
+                document.getElementById('selectBtn').disabled = true;
+                document.getElementById('selectBtn').textContent = '⏳ Scanning...';
+                
+                // Build pipeline for reading
+                const readPipeline = new Pipeline('Read Pipeline');
+                selectedFiles = await readPipeline
+                    .addFilter(filterReadDirectory, 'Read Directory')
+                    .execute(folderHandle);
+                
+                eventBus.emit('complete', { step: 'reading' });
+                
+                document.getElementById('folderName').textContent = folderName;
+                document.getElementById('fileCount').textContent = selectedFiles.length;
+                document.getElementById('selectedInfo').classList.add('show');
+                document.getElementById('formatOptions').style.display = 'block';
+                document.getElementById('processBtn').style.display = 'block';
+                document.getElementById('selectBtn').disabled = false;
+                document.getElementById('selectBtn').textContent = '📂 Select Another Folder';
+            } catch (error) {
+                document.getElementById('selectBtn').disabled = false;
+                document.getElementById('selectBtn').textContent = '📂 Select Folder from Your Device';
+                
+                if (error.message !== 'File limit exceeded') {
+                    console.error('Error reading folder:', error);
+                    eventBus.emit('error', error);
+                }
+            }
+        }
+        
+        function setupFileInputFallback() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.id = 'fileInput';
+            input.webkitdirectory = true;
+            input.multiple = true;
+            input.style.display = 'none';
+            document.body.appendChild(input);
+            
+            input.addEventListener('change', (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+                
+                if (files.length > 10000) {
+                    alert('⚠️ Too many files (>10,000)!\n\nFor large folders, use the command-line tool on desktop.');
+                    return;
+                }
+                
+                folderName = files[0].webkitRelativePath.split('/')[0];
+                
+                selectedFiles = files.map(file => ({
+                    path: file.webkitRelativePath.split('/').slice(1).join('/'),
+                    isDir: false,
+                    name: file.name
+                }));
+                
+                const dirs = new Set();
+                files.forEach(file => {
+                    const parts = file.webkitRelativePath.split('/');
+                    for (let i = 1; i < parts.length - 1; i++) {
+                        dirs.add(parts.slice(1, i + 1).join('/'));
+                    }
+                });
+                
+                dirs.forEach(dir => {
+                    selectedFiles.push({
+                        path: dir,
+                        isDir: true,
+                        name: dir.split('/').pop()
+                    });
+                });
+                
+                selectedFiles.sort((a, b) => a.path.localeCompare(b.path));
+                
+                document.getElementById('folderName').textContent = folderName;
+                document.getElementById('fileCount').textContent = selectedFiles.length;
+                document.getElementById('selectedInfo').classList.add('show');
+                document.getElementById('formatOptions').style.display = 'block';
+                document.getElementById('processBtn').style.display = 'block';
+            });
+        }
+        
+        document.getElementById('processBtn').addEventListener('click', generateIndex);
+        
+        async function generateIndex() {
+            const btn = document.getElementById('processBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Processing...';
+            
+            document.getElementById('progressBar').classList.add('show');
+            
+            const genJSON = document.getElementById('checkJSON').checked;
+            const genXML = document.getElementById('checkXML').checked;
+            const genTXT = document.getElementById('checkTXT').checked;
+            
+            if (!genJSON && !genXML && !genTXT) {
+                eventBus.emit('error', { message: 'Please select at least one format to generate!' });
+                btn.disabled = false;
+                btn.textContent = '🚀 Generate Index';
+                return;
+            }
+            
+            try {
+                // Build processing pipeline
+                const processPipeline = new Pipeline('Process Pipeline');
+                
+                hierarchy = await processPipeline
+                    .addFilter(filterSort, 'Sort Files')
+                    .addFilter(filterBuildHierarchy, 'Build Hierarchy')
+                    .execute(selectedFiles);
+                
+                const data = {
+                    root: folderName,
+                    hierarchy: hierarchy
+                };
+                
+                // Generate selected formats using output filters
+                const outputs = {};
+                if (genJSON) outputs.json = filterToJSON(data);
+                if (genXML) outputs.xml = filterToXML(data);
+                if (genTXT) outputs.txt = filterToTXT(data);
+                
+                eventBus.emit('complete', { step: 'processing' });
+                
+                // Show result
+                const result = document.getElementById('result');
+                result.className = 'show success';
+                
+                let downloadButtons = '';
+                if (outputs.json) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.json, 'directory_index.json', 'application/json')">📄 Download JSON</button>`;
+                }
+                if (outputs.xml) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.xml, 'directory_index.xml', 'application/xml')">📄 Download XML</button>`;
+                }
+                if (outputs.txt) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.txt, 'directory_index.txt', 'text/plain')">📄 Download TXT</button>`;
+                }
+                
+                window.outputs = outputs;
+                
+                result.innerHTML = `
+                    <h3>✅ Index Generated!</h3>
+                    <p><strong>Folder:</strong> ${folderName}</p>
+                    <p><strong>Items:</strong> ${selectedFiles.length}</p>
+                    <p style="margin-top: 15px;"><strong>Tap to download:</strong></p>
+                    <div style="margin: 10px 0;">
+                        ${downloadButtons}
+                    </div>
+                    ${outputs.txt ? '<div class="preview">' + escapeHtml(outputs.txt) + '</div>' : ''}
+                `;
+                
+            } catch (error) {
+                eventBus.emit('error', error);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🚀 Generate Index';
+            }
+        }
+        
+        // ==================== UTILITY FUNCTIONS ====================
         
         function downloadFileContent(content, filename, mimeType) {
             try {
@@ -579,13 +756,11 @@
                 document.body.appendChild(a);
                 a.click();
                 
-                // Clean up
                 setTimeout(() => {
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                 }, 100);
                 
-                // Show feedback
                 const btn = event.target;
                 const originalText = btn.textContent;
                 btn.textContent = '✅ Downloaded!';
@@ -631,4 +806,3 @@
     </script>
 </body>
 </html>
-
