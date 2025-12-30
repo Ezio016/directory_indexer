@@ -1,6 +1,17 @@
-# Directory Hierarchy Indexer
+# 📱 Directory Hierarchy Indexer
 
-A simple Python tool to create hierarchical numbering (IP-style like 1.1.1) for directory contents and export to JSON, XML, and TXT formats.
+A cross-platform app (and Python tool) to create hierarchical numbering (IP-style like 1.1.1) for directory contents and export to JSON, XML, and TXT formats.
+
+## ⭐ NEW: Progressive Web App
+
+**Install as a real app on ANY device!**
+- ✅ iPhone / iPad
+- ✅ Android
+- ✅ Mac / Windows / Linux
+- ✅ No App Store required
+- ✅ Works offline after installation
+
+👉 **[Get Started with the App →](APP_GUIDE.md)** | **[Quick Start →](QUICKSTART.md)**
 
 ## Features
 
