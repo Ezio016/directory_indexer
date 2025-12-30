@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from pathlib import Path
 import argparse
+import subprocess
 
 
 class DirectoryIndexer:
@@ -127,8 +128,9 @@ class DirectoryIndexer:
                     f.write(line + "\n")
         
         print(f"✓ TXT file created: {output_path}")
+        return output_path
     
-    def process(self, json_output=True, xml_output=True, txt_output=True, output_base_dir="."):
+    def process(self, json_output=True, xml_output=True, txt_output=True, output_base_dir=".", auto_open=True):
         """Process directory and generate all requested outputs"""
         print(f"Scanning directory: {self.root_path}")
         self.hierarchy = self.scan_directory()
@@ -145,6 +147,8 @@ class DirectoryIndexer:
         os.makedirs(output_dir, exist_ok=True)
         print(f"\nCreating output folder: {output_dir}")
         
+        txt_path = None
+        
         if json_output:
             self.generate_json(output_dir)
         
@@ -152,7 +156,16 @@ class DirectoryIndexer:
             self.generate_xml(output_dir)
         
         if txt_output:
-            self.generate_txt(output_dir)
+            txt_path = self.generate_txt(output_dir)
+        
+        # Auto-open the TXT file in Finder (macOS)
+        if auto_open and txt_path:
+            try:
+                # Use -R to reveal in Finder, or -t to open as text
+                subprocess.run(['open', '-R', txt_path], check=False)
+                print(f"\n📂 Revealing TXT file in Finder...")
+            except Exception as e:
+                print(f"\nNote: Could not auto-open file: {e}")
     
     def _count_items(self, items):
         """Count total items recursively"""
@@ -187,6 +200,11 @@ def main():
         help="Skip TXT output"
     )
     parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Don't automatically open the TXT file when done"
+    )
+    parser.add_argument(
         "-o", "--output-dir",
         default=".",
         help="Output directory for generated files (default: current directory)"
@@ -208,7 +226,8 @@ def main():
         json_output=not args.no_json,
         xml_output=not args.no_xml,
         txt_output=not args.no_txt,
-        output_base_dir=args.output_dir
+        output_base_dir=args.output_dir,
+        auto_open=not args.no_open
     )
     
     print("\n✅ Done!")

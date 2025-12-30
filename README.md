@@ -9,6 +9,8 @@ A simple Python tool to create hierarchical numbering (IP-style like 1.1.1) for 
 - 📦 Outputs to JSON, XML, and indented TXT formats
 - 🎯 Simple command-line interface
 - ✨ Easy to test and use
+- 📂 Automatically opens the TXT file in Finder when done
+- 🔤 Items sorted alphabetically (directories first, then files)
 
 ## Usage
 
@@ -33,11 +35,14 @@ python directory_indexer.py /path/to/dir --no-json
 python directory_indexer.py /path/to/dir --no-xml
 python directory_indexer.py /path/to/dir --no-txt
 
+# Don't automatically open the TXT file
+python directory_indexer.py /path/to/dir --no-open
+
 # Specify output directory
 python directory_indexer.py /path/to/dir -o ./output
 
 # Combine options
-python directory_indexer.py /path/to/dir --no-xml -o ./results
+python directory_indexer.py /path/to/dir --no-xml --no-open -o ./results
 ```
 
 ### Examples
@@ -127,6 +132,29 @@ The script automatically creates a folder named `Items_in_[FolderName]` (where F
 
 - Python 3.6 or higher
 - No external dependencies (uses only standard library)
+
+## Global Installation (Optional)
+
+To use `dirindex` from anywhere on your system:
+
+```bash
+# Make the script executable
+chmod +x /path/to/directory_indexer.py
+
+# Create a global symlink (requires sudo)
+sudo ln -sf /path/to/directory_indexer.py /usr/local/bin/dirindex
+
+# Now use it from anywhere!
+dirindex /path/to/folder
+
+# Or drag and drop folders:
+dirindex [drag folder here from Finder]
+```
+
+**To remove:**
+```bash
+sudo rm /usr/local/bin/dirindex
+```
 
 ## Notes
 
