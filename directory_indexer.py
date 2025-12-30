@@ -29,14 +29,12 @@ class DirectoryIndexer:
         
         items = []
         try:
-            # Get all items in directory, sorted alphabetically
-            entries = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            # Get all items in directory, filter hidden files, sort alphabetically
+            # Directories first, then files, each group sorted alphabetically (case-insensitive)
+            all_entries = [e for e in path.iterdir() if not e.name.startswith('.')]
+            entries = sorted(all_entries, key=lambda x: (not x.is_dir(), x.name.lower()))
             
             for idx, entry in enumerate(entries, start=1):
-                # Skip hidden files
-                if entry.name.startswith('.'):
-                    continue
-                
                 # Create the hierarchical number (e.g., 1.1.1)
                 if prefix:
                     number = f"{prefix}.{idx}"
