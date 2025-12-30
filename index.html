@@ -176,13 +176,23 @@
         
         .download-btn {
             display: inline-block;
-            padding: 12px 20px;
+            padding: 15px 20px;
             background: #667eea;
             color: white;
             text-decoration: none;
+            border: none;
             border-radius: 8px;
             margin: 5px;
             font-weight: 600;
+            font-size: 1em;
+            cursor: pointer;
+            touch-action: manipulation;
+            transition: all 0.2s;
+        }
+        
+        .download-btn:active {
+            transform: scale(0.95);
+            background: #5568d3;
         }
         
         .warning {
@@ -223,6 +233,24 @@
             <div class="selected-folder" id="selectedInfo">
                 <strong>Selected:</strong> <span id="folderName"></span><br>
                 <strong>Files:</strong> <span id="fileCount">0</span> items
+            </div>
+            
+            <div id="formatOptions" style="display: none; margin: 15px 0;">
+                <p style="font-weight: 600; margin-bottom: 10px; color: #333;">Select formats to generate:</p>
+                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="checkJSON" checked style="width: 20px; height: 20px; cursor: pointer;">
+                        <span>📄 JSON</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="checkXML" checked style="width: 20px; height: 20px; cursor: pointer;">
+                        <span>📄 XML</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="checkTXT" checked style="width: 20px; height: 20px; cursor: pointer;">
+                        <span>📄 TXT</span>
+                    </label>
+                </div>
             </div>
             
             <button class="process-btn" id="processBtn" style="display: none;">
@@ -273,6 +301,7 @@
             document.getElementById('folderName').textContent = folderName;
             document.getElementById('fileCount').textContent = selectedFiles.length;
             document.getElementById('selectedInfo').classList.add('show');
+            document.getElementById('formatOptions').style.display = 'block';
             document.getElementById('processBtn').style.display = 'block';
             document.getElementById('selectBtn').disabled = false;
             document.getElementById('selectBtn').textContent = '📂 Select Another Folder';
@@ -337,6 +366,7 @@
                 document.getElementById('folderName').textContent = folderName;
                 document.getElementById('fileCount').textContent = selectedFiles.length;
                 document.getElementById('selectedInfo').classList.add('show');
+                document.getElementById('formatOptions').style.display = 'block';
                 document.getElementById('processBtn').style.display = 'block';
             });
         }
@@ -348,27 +378,55 @@
             btn.disabled = true;
             btn.textContent = '⏳ Processing...';
             
+            // Check which formats are selected
+            const genJSON = document.getElementById('checkJSON').checked;
+            const genXML = document.getElementById('checkXML').checked;
+            const genTXT = document.getElementById('checkTXT').checked;
+            
+            if (!genJSON && !genXML && !genTXT) {
+                showError('Please select at least one format to generate!');
+                btn.disabled = false;
+                btn.textContent = '🚀 Generate Index';
+                return;
+            }
+            
             try {
                 // Build hierarchy
                 hierarchy = buildHierarchy(selectedFiles);
                 
-                // Generate outputs
-                const json = generateJSON();
-                const xml = generateXML();
-                const txt = generateTXT();
+                // Generate selected formats
+                const outputs = {};
+                if (genJSON) outputs.json = generateJSON();
+                if (genXML) outputs.xml = generateXML();
+                if (genTXT) outputs.txt = generateTXT();
                 
                 // Show result
                 const result = document.getElementById('result');
                 result.className = 'show success';
+                
+                let downloadButtons = '';
+                if (outputs.json) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.json, 'directory_index.json', 'application/json')">📄 Download JSON</button>`;
+                }
+                if (outputs.xml) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.xml, 'directory_index.xml', 'application/xml')">📄 Download XML</button>`;
+                }
+                if (outputs.txt) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.txt, 'directory_index.txt', 'text/plain')">📄 Download TXT</button>`;
+                }
+                
+                // Store outputs globally for download functions
+                window.outputs = outputs;
+                
                 result.innerHTML = `
                     <h3>✅ Index Generated!</h3>
                     <p><strong>Folder:</strong> ${folderName}</p>
                     <p><strong>Items:</strong> ${selectedFiles.length}</p>
-                    <p><strong>Download your files:</strong></p>
-                    <button class="download-btn" onclick="downloadFile('${json}', 'directory_index.json')">📄 Download JSON</button>
-                    <button class="download-btn" onclick="downloadFile('${xml}', 'directory_index.xml')">📄 Download XML</button>
-                    <button class="download-btn" onclick="downloadFile('${txt}', 'directory_index.txt')">📄 Download TXT</button>
-                    <div class="preview">${txt}</div>
+                    <p style="margin-top: 15px;"><strong>Tap to download:</strong></p>
+                    <div style="margin: 10px 0;">
+                        ${downloadButtons}
+                    </div>
+                    ${outputs.txt ? '<div class="preview">' + escapeHtml(outputs.txt) + '</div>' : ''}
                 `;
                 
             } catch (error) {
@@ -482,16 +540,41 @@
             return txt;
         }
         
-        function downloadFile(content, filename) {
-            const blob = new Blob([content], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+        function downloadFileContent(content, filename, mimeType) {
+            try {
+                const blob = new Blob([content], { type: mimeType || 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                
+                // Clean up
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+                
+                // Show feedback
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Downloaded!';
+                btn.style.background = '#4caf50';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            } catch (error) {
+                alert('Error downloading file: ' + error.message);
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
         
         function escapeXml(str) {
