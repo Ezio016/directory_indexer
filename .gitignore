@@ -36,8 +36,6 @@ env/
 .DS_Store
 Thumbs.db
 
-# Generated output files (optional - remove these lines if you want to commit examples)
-directory_index.json
-directory_index.xml
-directory_index.txt
+# Generated output folders and files
+Items_in_*/
 
