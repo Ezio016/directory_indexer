@@ -42,18 +42,21 @@ python directory_indexer.py
 
 ```bash
 # Skip certain output formats
-python directory_indexer.py /path/to/dir --no-json
-python directory_indexer.py /path/to/dir --no-xml
-python directory_indexer.py /path/to/dir --no-txt
+dirindex /path/to/dir --no-json
+dirindex /path/to/dir --no-xml
+dirindex /path/to/dir --no-txt
 
 # Don't automatically open the TXT file
-python directory_indexer.py /path/to/dir --no-open
+dirindex /path/to/dir --no-open
 
-# Specify output directory
-python directory_indexer.py /path/to/dir -o ./output
+# Output location options
+dirindex /path/to/dir                    # Default: current directory
+dirindex /path/to/dir -o ~/Desktop       # Custom location
+dirindex /path/to/dir --output-in-target # Inside the target directory
+dirindex /path/to/dir -i                 # Interactive: ask where to save
 
 # Combine options
-python directory_indexer.py /path/to/dir --no-xml --no-open -o ./results
+dirindex /path/to/dir --no-xml --no-open -o ./results
 ```
 
 ### Examples

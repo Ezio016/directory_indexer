@@ -12,6 +12,7 @@ from xml.dom import minidom
 from pathlib import Path
 import argparse
 import subprocess
+import platform
 
 
 class DirectoryIndexer:
@@ -219,8 +220,18 @@ def main():
     )
     parser.add_argument(
         "-o", "--output-dir",
-        default=".",
-        help="Output directory for generated files (default: current directory)"
+        help="Output directory for generated files (if not specified, will prompt or use current directory)"
+    )
+    parser.add_argument(
+        "--output-in-target",
+        action="store_true",
+        help="Save output inside the target directory instead of current directory"
+    )
+    parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Ask where to save output (interactive mode)"
     )
     
     args = parser.parse_args()
@@ -231,6 +242,31 @@ def main():
     else:
         target_dir = input("Enter directory path to index: ").strip()
     
+    # Determine output directory
+    if args.output_dir:
+        # Explicitly specified via -o flag
+        output_base_dir = args.output_dir
+    elif args.output_in_target:
+        # Save inside the target directory
+        output_base_dir = target_dir
+    elif args.interactive:
+        # Ask user where to save
+        print("\n📂 Where do you want to save the output?")
+        print("   1. Current directory (default)")
+        print("   2. Inside the target directory")
+        print("   3. Custom location")
+        choice = input("Choose (1-3) [1]: ").strip() or "1"
+        
+        if choice == "2":
+            output_base_dir = target_dir
+        elif choice == "3":
+            output_base_dir = input("Enter custom output path: ").strip()
+        else:
+            output_base_dir = "."
+    else:
+        # Default: current directory
+        output_base_dir = "."
+    
     # Create indexer
     indexer = DirectoryIndexer(target_dir)
     
@@ -239,7 +275,7 @@ def main():
         json_output=not args.no_json,
         xml_output=not args.no_xml,
         txt_output=not args.no_txt,
-        output_base_dir=args.output_dir,
+        output_base_dir=output_base_dir,
         auto_open=not args.no_open
     )
     
