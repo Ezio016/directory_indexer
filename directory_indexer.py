@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""
+Directory Hierarchy Indexer
+Creates hierarchical numbering (IP-style) for directory contents
+Outputs: JSON, XML, and indented TXT formats
+"""
+
+import os
+import json
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+from pathlib import Path
+import argparse
+
+
+class DirectoryIndexer:
+    def __init__(self, root_path):
+        self.root_path = Path(root_path)
+        self.hierarchy = []
+    
+    def scan_directory(self, path=None, prefix="", depth=0):
+        """Recursively scan directory and build hierarchy with numbering"""
+        if path is None:
+            path = self.root_path
+        
+        if not path.exists():
+            print(f"Error: Path '{path}' does not exist")
+            return []
+        
+        items = []
+        try:
+            # Get all items in directory, sorted alphabetically
+            entries = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            
+            for idx, entry in enumerate(entries, start=1):
+                # Skip hidden files
+                if entry.name.startswith('.'):
+                    continue
+                
+                # Create the hierarchical number (e.g., 1.1.1)
+                if prefix:
+                    number = f"{prefix}.{idx}"
+                else:
+                    number = str(idx)
+                
+                item_data = {
+                    "number": number,
+                    "name": entry.name,
+                    "type": "directory" if entry.is_dir() else "file",
+                    "path": str(entry.relative_to(self.root_path)),
+                    "children": []
+                }
+                
+                # Recursively process subdirectories
+                if entry.is_dir():
+                    item_data["children"] = self.scan_directory(entry, number, depth + 1)
+                
+                items.append(item_data)
+        
+        except PermissionError:
+            print(f"Warning: Permission denied for {path}")
+        
+        return items
+    
+    def generate_json(self, output_path="directory_index.json"):
+        """Generate JSON output"""
+        data = {
+            "root": str(self.root_path),
+            "hierarchy": self.hierarchy
+        }
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        print(f"✓ JSON file created: {output_path}")
+    
+    def generate_xml(self, output_path="directory_index.xml"):
+        """Generate XML output"""
+        root = ET.Element("directory_index")
+        root.set("root_path", str(self.root_path))
+        
+        def add_items_to_xml(parent_element, items):
+            for item in items:
+                item_element = ET.SubElement(parent_element, "item")
+                item_element.set("number", item["number"])
+                item_element.set("type", item["type"])
+                
+                name_elem = ET.SubElement(item_element, "name")
+                name_elem.text = item["name"]
+                
+                path_elem = ET.SubElement(item_element, "path")
+                path_elem.text = item["path"]
+                
+                if item["children"]:
+                    children_elem = ET.SubElement(item_element, "children")
+                    add_items_to_xml(children_elem, item["children"])
+        
+        add_items_to_xml(root, self.hierarchy)
+        
+        # Pretty print XML
+        xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(xml_str)
+        
+        print(f"✓ XML file created: {output_path}")
+    
+    def generate_txt(self, output_path="directory_index.txt"):
+        """Generate indented text output"""
+        def format_item(item, depth=0):
+            indent = "  " * depth
+            type_icon = "📁" if item["type"] == "directory" else "📄"
+            lines = [f"{indent}{item['number']}. {type_icon} {item['name']}"]
+            
+            for child in item["children"]:
+                lines.extend(format_item(child, depth + 1))
+            
+            return lines
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(f"Directory Index: {self.root_path}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            for item in self.hierarchy:
+                for line in format_item(item):
+                    f.write(line + "\n")
+        
+        print(f"✓ TXT file created: {output_path}")
+    
+    def process(self, json_output=True, xml_output=True, txt_output=True):
+        """Process directory and generate all requested outputs"""
+        print(f"Scanning directory: {self.root_path}")
+        self.hierarchy = self.scan_directory()
+        
+        if not self.hierarchy:
+            print("No items found or directory is empty")
+            return
+        
+        print(f"Found {self._count_items(self.hierarchy)} items")
+        
+        if json_output:
+            self.generate_json()
+        
+        if xml_output:
+            self.generate_xml()
+        
+        if txt_output:
+            self.generate_txt()
+    
+    def _count_items(self, items):
+        """Count total items recursively"""
+        count = len(items)
+        for item in items:
+            count += self._count_items(item["children"])
+        return count
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Index directory contents with hierarchical numbering"
+    )
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        help="Directory path to index (if not provided, will prompt)"
+    )
+    parser.add_argument(
+        "--no-json",
+        action="store_true",
+        help="Skip JSON output"
+    )
+    parser.add_argument(
+        "--no-xml",
+        action="store_true",
+        help="Skip XML output"
+    )
+    parser.add_argument(
+        "--no-txt",
+        action="store_true",
+        help="Skip TXT output"
+    )
+    parser.add_argument(
+        "-o", "--output-dir",
+        default=".",
+        help="Output directory for generated files (default: current directory)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Get directory path
+    if args.directory:
+        target_dir = args.directory
+    else:
+        target_dir = input("Enter directory path to index: ").strip()
+    
+    # Create indexer
+    indexer = DirectoryIndexer(target_dir)
+    
+    # Change to output directory if specified
+    if args.output_dir != ".":
+        os.makedirs(args.output_dir, exist_ok=True)
+        os.chdir(args.output_dir)
+    
+    # Process and generate outputs
+    indexer.process(
+        json_output=not args.no_json,
+        xml_output=not args.no_xml,
+        txt_output=not args.no_txt
+    )
+    
+    print("\n✅ Done!")
+
+
+if __name__ == "__main__":
+    main()
+
