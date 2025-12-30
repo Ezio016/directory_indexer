@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """
-Directory Hierarchy Indexer - Optimized Hybrid Architecture
-Fast scanning with periodic yielding for UI responsiveness
+Directory Hierarchy Indexer - Reindex Tool
 Creates hierarchical numbering (IP-style) for directory contents
-Outputs: JSON, XML, and indented TXT formats
+Outputs stored inside the indexed folder
+
+Usage:
+    reindex /path/to/folder -t          # Generate TXT index
+    reindex /path/to/folder -t -w       # Generate TXT + new ReadMe.txt
+    reindex /path/to/folder -t -u       # Update TXT index
+    reindex /path/to/folder -j          # Generate JSON index
+    reindex /path/to/folder -x          # Generate XML index
+    reindex /path/to/folder -t -j -x    # Generate all formats
 """
 
 import os
@@ -15,17 +22,14 @@ import argparse
 import subprocess
 import platform
 from typing import Iterator, Dict, Any, Callable, List, Optional
+from datetime import datetime
 
 
-# ==================== OPTIMIZED HYBRID PIPELINE ====================
+# ==================== HYBRID PIPELINE ====================
 
 class HybridPipeline:
     """
-    Hybrid approach: Fast scanning + periodic yielding
-    - Scans efficiently using os.scandir (fastest method)
-    - Tracks paths as strings (no expensive relative_to())
-    - Yields progress callbacks for UI responsiveness
-    - Builds hierarchy in single pass
+    Optimized scanning with periodic progress yields
     """
     
     def __init__(self):
@@ -37,15 +41,11 @@ class HybridPipeline:
         self.on_progress = callback
     
     def _emit_progress(self):
-        """Emit progress if callback is set"""
         if self.on_progress and self.item_count % self.yield_interval == 0:
             self.on_progress(self.item_count, f"Processing... {self.item_count:,} items")
     
     def scan_and_build(self, root_path: Path) -> List[Dict[str, Any]]:
-        """
-        Single-pass scan and hierarchy building
-        Optimized: tracks relative path as string, no Path operations
-        """
+        """Single-pass scan and hierarchy building"""
         self.item_count = 0
         root_str = str(root_path)
         
@@ -57,16 +57,11 @@ class HybridPipeline:
         return hierarchy
     
     def _scan_recursive(self, dir_path: str, rel_path: str, parent_number: str = "") -> List[Dict[str, Any]]:
-        """
-        Recursive scan with inline numbering
-        Optimized: uses os.scandir and string paths only
-        """
+        """Recursive scan with inline numbering"""
         items = []
         
         try:
-            # Use os.scandir for speed (faster than Path.iterdir)
             with os.scandir(dir_path) as entries:
-                # Filter hidden and sort: dirs first, then alphabetically
                 sorted_entries = sorted(
                     [e for e in entries if not e.name.startswith('.')],
                     key=lambda e: (not e.is_dir(), e.name.lower())
@@ -78,12 +73,8 @@ class HybridPipeline:
             self.item_count += 1
             self._emit_progress()
             
-            # Build hierarchical number
             number = f"{parent_number}.{idx}" if parent_number else str(idx)
-            
-            # Build relative path as string (no Path operations)
             item_rel_path = f"{rel_path}/{entry.name}" if rel_path else entry.name
-            
             is_dir = entry.is_dir()
             
             item = {
@@ -94,7 +85,6 @@ class HybridPipeline:
                 "children": []
             }
             
-            # Recurse into directories
             if is_dir:
                 item["children"] = self._scan_recursive(entry.path, item_rel_path, number)
             
@@ -103,26 +93,43 @@ class HybridPipeline:
         return items
 
 
-# ==================== STREAMING OUTPUT GENERATORS ====================
+# ==================== OUTPUT GENERATORS ====================
 
-def stream_to_json(data: Dict[str, Any]) -> Iterator[str]:
-    """Stream JSON output"""
-    yield json.dumps(data, indent=2, ensure_ascii=False)
+def generate_txt(data: Dict[str, Any]) -> str:
+    """Generate TXT output (no icons)"""
+    lines = [
+        f"Directory Index: {data['root']}",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "=" * 60,
+        ""
+    ]
+    
+    def format_items(items, depth=0):
+        for item in items:
+            indent = "  " * depth
+            type_marker = "[D]" if item["type"] == "directory" else "[F]"
+            lines.append(f"{indent}{item['number']}. {type_marker} {item['name']}")
+            
+            if item.get("children"):
+                format_items(item["children"], depth + 1)
+    
+    format_items(data["hierarchy"])
+    return "\n".join(lines)
 
 
-def stream_to_xml(data: Dict[str, Any], on_progress: Callable = None) -> Iterator[str]:
-    """Stream XML output"""
+def generate_json(data: Dict[str, Any]) -> str:
+    """Generate JSON output"""
+    return json.dumps(data, indent=2, ensure_ascii=False)
+
+
+def generate_xml(data: Dict[str, Any]) -> str:
+    """Generate XML output"""
     root = ET.Element("directory_index")
     root.set("root_path", str(data["root"]))
+    root.set("generated", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     
-    item_count = [0]
-    
-    def add_items_to_xml(parent_element, items):
+    def add_items(parent_element, items):
         for item in items:
-            item_count[0] += 1
-            if on_progress and item_count[0] % 500 == 0:
-                on_progress(item_count[0], f"Generating XML... {item_count[0]:,}")
-            
             item_element = ET.SubElement(parent_element, "item")
             item_element.set("number", item["number"])
             item_element.set("type", item["type"])
@@ -133,54 +140,95 @@ def stream_to_xml(data: Dict[str, Any], on_progress: Callable = None) -> Iterato
             path_elem = ET.SubElement(item_element, "path")
             path_elem.text = item["path"]
             
-            if item["children"]:
+            if item.get("children"):
                 children_elem = ET.SubElement(item_element, "children")
-                add_items_to_xml(children_elem, item["children"])
+                add_items(children_elem, item["children"])
     
-    add_items_to_xml(root, data["hierarchy"])
+    add_items(root, data["hierarchy"])
     
     xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
-    yield xml_str
+    return xml_str
 
 
-def stream_to_txt(data: Dict[str, Any], on_progress: Callable = None) -> Iterator[str]:
-    """Stream TXT output line by line"""
-    yield f"Directory Index: {data['root']}"
-    yield "=" * 80
-    yield ""
+def generate_readme(folder_name: str, item_count: int, hierarchy: List[Dict]) -> str:
+    """Generate ReadMe.txt with folder overview"""
     
-    item_count = [0]
-    
-    def format_items(items, depth=0):
+    # Count directories and files
+    def count_types(items):
+        dirs = 0
+        files = 0
         for item in items:
-            item_count[0] += 1
-            if on_progress and item_count[0] % 500 == 0:
-                on_progress(item_count[0], f"Generating TXT... {item_count[0]:,}")
-            
-            indent = "  " * depth
-            icon = "📁" if item["type"] == "directory" else "📄"
-            yield f"{indent}{item['number']}. {icon} {item['name']}"
-            
-            if item["children"]:
-                yield from format_items(item["children"], depth + 1)
+            if item["type"] == "directory":
+                dirs += 1
+                sub_dirs, sub_files = count_types(item.get("children", []))
+                dirs += sub_dirs
+                files += sub_files
+            else:
+                files += 1
+        return dirs, files
     
-    yield from format_items(data["hierarchy"])
+    dir_count, file_count = count_types(hierarchy)
+    
+    # Get top-level items
+    top_items = []
+    for item in hierarchy[:10]:  # First 10
+        type_marker = "[D]" if item["type"] == "directory" else "[F]"
+        top_items.append(f"  {item['number']}. {type_marker} {item['name']}")
+    
+    if len(hierarchy) > 10:
+        top_items.append(f"  ... and {len(hierarchy) - 10} more items")
+    
+    readme = f"""ReadMe - {folder_name}
+{'=' * 60}
+
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+SUMMARY
+-------
+Total Items: {item_count:,}
+Directories: {dir_count:,}
+Files:       {file_count:,}
+
+TOP-LEVEL CONTENTS
+------------------
+{chr(10).join(top_items)}
+
+INDEX FILES
+-----------
+- directory_index.txt  : Full hierarchical listing
+- directory_index.json : Machine-readable JSON format
+- directory_index.xml  : XML format
+
+NUMBERING SCHEME
+----------------
+Items are numbered hierarchically (e.g., 1.2.3):
+- First number: position at root level
+- Subsequent numbers: position within parent directory
+- [D] = Directory, [F] = File
+
+Example:
+  1. [D] Documents
+    1.1. [F] report.pdf
+    1.2. [D] Archive
+      1.2.1. [F] old_data.zip
+"""
+    return readme
 
 
 # ==================== DIRECTORY INDEXER ====================
 
 class DirectoryIndexer:
-    """Main indexer using Optimized Hybrid architecture"""
+    """Main indexer - outputs stored inside indexed folder"""
     
     def __init__(self, root_path: str):
-        self.root_path = Path(root_path)
+        self.root_path = Path(root_path).resolve()
         self.hierarchy = []
         self.pipeline = HybridPipeline()
         self.item_count = 0
     
     def scan(self) -> List[Dict[str, Any]]:
-        """Build hierarchy using optimized hybrid pipeline"""
-        print(f"Scanning directory: {self.root_path}")
+        """Build hierarchy"""
+        print(f"Scanning: {self.root_path}")
         
         def progress_callback(count: int, message: str):
             print(f"\r{message}", end="", flush=True)
@@ -192,152 +240,170 @@ class DirectoryIndexer:
         print(f"\nFound {self.item_count:,} items")
         return self.hierarchy
     
-    def generate_outputs(self, output_dir: str, formats: Dict[str, bool], auto_open: bool = True):
-        """Generate output files"""
+    def generate_outputs(self, formats: Dict[str, bool], write_readme: bool = False):
+        """Generate output files inside the indexed folder"""
         if not self.hierarchy:
-            print("No hierarchy data. Run scan() first.")
+            print("No data. Run scan() first.")
             return
-        
-        folder_name = self.root_path.name
-        output_path = os.path.join(output_dir, f"Items_in_{folder_name}")
-        os.makedirs(output_path, exist_ok=True)
-        print(f"\nCreating output folder: {output_path}")
         
         data = {
             "root": str(self.root_path),
             "hierarchy": self.hierarchy
         }
         
-        txt_file_path = None
+        output_dir = self.root_path
+        print(f"\nSaving to: {output_dir}")
         
-        def progress_callback(count: int, message: str):
-            print(f"\r{message}", end="", flush=True)
+        created_files = []
         
-        if formats.get('json', True):
-            print("Generating JSON...", end="")
-            json_path = os.path.join(output_path, "directory_index.json")
+        if formats.get('txt', False):
+            txt_content = generate_txt(data)
+            txt_path = output_dir / "directory_index.txt"
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(txt_content)
+            print(f"  Created: directory_index.txt")
+            created_files.append(txt_path)
+        
+        if formats.get('json', False):
+            json_content = generate_json(data)
+            json_path = output_dir / "directory_index.json"
             with open(json_path, 'w', encoding='utf-8') as f:
-                for chunk in stream_to_json(data):
-                    f.write(chunk)
-            print(f"\r✓ JSON: {json_path}")
+                f.write(json_content)
+            print(f"  Created: directory_index.json")
+            created_files.append(json_path)
         
-        if formats.get('xml', True):
-            print("Generating XML...", end="")
-            xml_path = os.path.join(output_path, "directory_index.xml")
+        if formats.get('xml', False):
+            xml_content = generate_xml(data)
+            xml_path = output_dir / "directory_index.xml"
             with open(xml_path, 'w', encoding='utf-8') as f:
-                for chunk in stream_to_xml(data, progress_callback):
-                    f.write(chunk)
-            print(f"\r✓ XML: {xml_path}                    ")
+                f.write(xml_content)
+            print(f"  Created: directory_index.xml")
+            created_files.append(xml_path)
         
-        if formats.get('txt', True):
-            print("Generating TXT...", end="")
-            txt_file_path = os.path.join(output_path, "directory_index.txt")
-            with open(txt_file_path, 'w', encoding='utf-8') as f:
-                for line in stream_to_txt(data, progress_callback):
-                    f.write(line + "\n")
-            print(f"\r✓ TXT: {txt_file_path}                    ")
+        if write_readme:
+            readme_content = generate_readme(
+                self.root_path.name, 
+                self.item_count, 
+                self.hierarchy
+            )
+            readme_path = output_dir / "ReadMe.txt"
+            with open(readme_path, 'w', encoding='utf-8') as f:
+                f.write(readme_content)
+            print(f"  Created: ReadMe.txt")
+            created_files.append(readme_path)
         
-        if auto_open and txt_file_path:
-            self._open_file(txt_file_path)
-    
-    def _open_file(self, file_path: str):
-        """Open file in system default application"""
-        try:
-            system = platform.system()
-            
-            if system == 'Darwin':
-                subprocess.run(['open', '-R', file_path], check=False)
-                print(f"\n📂 Revealing in Finder...")
-            elif system == 'Windows':
-                subprocess.run(['explorer', '/select,', os.path.abspath(file_path)], check=False)
-                print(f"\n📂 Opening in Explorer...")
-            elif system == 'Linux':
-                subprocess.run(['xdg-open', os.path.dirname(os.path.abspath(file_path))], check=False)
-                print(f"\n📂 Opening folder...")
-            else:
-                print(f"\n📂 Output: {file_path}")
-        except Exception as e:
-            print(f"\nOutput saved to: {file_path}")
+        return created_files
 
 
-# ==================== BACKWARD COMPATIBLE FILTERS ====================
-
-def filter_to_json(data: Dict[str, Any]) -> str:
-    """Convert hierarchy to JSON"""
-    return json.dumps(data, indent=2, ensure_ascii=False)
-
-
-def filter_to_xml(data: Dict[str, Any]) -> str:
-    """Convert hierarchy to XML"""
-    return "".join(stream_to_xml(data))
-
-
-def filter_to_txt(data: Dict[str, Any]) -> str:
-    """Convert hierarchy to indented text"""
-    return "\n".join(stream_to_txt(data))
-
-
-# ==================== MAIN CLI ====================
+# ==================== CLI ====================
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Index directory with hierarchical numbering (Optimized Hybrid Pipeline)"
+        prog='reindex',
+        description='Index directory with hierarchical numbering. Output stored in indexed folder.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  reindex /path/to/folder -t          Generate TXT index
+  reindex /path/to/folder -t -w       Generate TXT + new ReadMe.txt  
+  reindex /path/to/folder -t -u       Update existing TXT index
+  reindex /path/to/folder -j          Generate JSON index
+  reindex /path/to/folder -x          Generate XML index
+  reindex /path/to/folder -t -j -x    Generate all formats
+  reindex /path/to/folder -t -j -x -w Generate all + ReadMe
+"""
     )
-    parser.add_argument("directory", nargs="?", help="Directory path to index")
-    parser.add_argument("--no-json", action="store_true", help="Skip JSON")
-    parser.add_argument("--no-xml", action="store_true", help="Skip XML")
-    parser.add_argument("--no-txt", action="store_true", help="Skip TXT")
-    parser.add_argument("--no-open", action="store_true", help="Don't auto-open")
-    parser.add_argument("-o", "--output-dir", help="Output directory")
-    parser.add_argument("--output-in-target", action="store_true", help="Save in target dir")
-    parser.add_argument("-i", "--interactive", action="store_true", help="Interactive mode")
+    
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        help="Directory path to index"
+    )
+    
+    parser.add_argument(
+        "-t", "--txt",
+        action="store_true",
+        help="Generate TXT output"
+    )
+    
+    parser.add_argument(
+        "-j", "--json",
+        action="store_true",
+        help="Generate JSON output"
+    )
+    
+    parser.add_argument(
+        "-x", "--xml",
+        action="store_true",
+        help="Generate XML output"
+    )
+    
+    parser.add_argument(
+        "-w", "--write-readme",
+        action="store_true",
+        help="Write new ReadMe.txt"
+    )
+    
+    parser.add_argument(
+        "-u", "--update",
+        action="store_true",
+        help="Update existing index (same as running without -w)"
+    )
+    
+    parser.add_argument(
+        "-a", "--all",
+        action="store_true",
+        help="Generate all formats (TXT, JSON, XML)"
+    )
     
     args = parser.parse_args()
     
+    # Get directory
     if args.directory:
         target_dir = args.directory
     else:
-        target_dir = input("Enter directory path to index: ").strip()
+        target_dir = input("Enter directory path: ").strip()
     
-    if args.output_dir:
-        output_base_dir = args.output_dir
-    elif args.output_in_target:
-        output_base_dir = target_dir
-    elif args.interactive:
-        print("\n📂 Where to save output?")
-        print("   1. Current directory (default)")
-        print("   2. Inside target directory")
-        print("   3. Custom location")
-        choice = input("Choose (1-3) [1]: ").strip() or "1"
-        
-        if choice == "2":
-            output_base_dir = target_dir
-        elif choice == "3":
-            output_base_dir = input("Enter path: ").strip()
-        else:
-            output_base_dir = "."
-    else:
-        output_base_dir = "."
+    if not target_dir:
+        print("Error: No directory specified")
+        return 1
     
-    indexer = DirectoryIndexer(target_dir)
+    target_path = Path(target_dir)
+    if not target_path.exists():
+        print(f"Error: Directory not found: {target_dir}")
+        return 1
     
+    if not target_path.is_dir():
+        print(f"Error: Not a directory: {target_dir}")
+        return 1
+    
+    # Determine formats
     formats = {
-        'json': not args.no_json,
-        'xml': not args.no_xml,
-        'txt': not args.no_txt
+        'txt': args.txt or args.all,
+        'json': args.json or args.all,
+        'xml': args.xml or args.all
     }
+    
+    # Default to TXT if no format specified
+    if not any(formats.values()):
+        formats['txt'] = True
+    
+    # Create indexer and run
+    indexer = DirectoryIndexer(target_dir)
     
     try:
         indexer.scan()
         indexer.generate_outputs(
-            output_dir=output_base_dir,
             formats=formats,
-            auto_open=not args.no_open
+            write_readme=args.write_readme
         )
-        print("\n✅ Done!")
+        print("\nDone!")
         
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        return 1
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\nError: {e}")
         return 1
     
     return 0
