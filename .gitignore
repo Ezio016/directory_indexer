@@ -39,3 +39,6 @@ Thumbs.db
 # Generated output folders and files
 Items_in_*/
 
+# Test files
+test_output/
+
