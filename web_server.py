@@ -400,11 +400,16 @@ def download():
     return send_file(file_path, as_attachment=True, download_name=filename_map[file_type])
 
 if __name__ == '__main__':
+    import socket
+    hostname = socket.gethostname()
+    
     print("🌐 Starting Directory Indexer Web Server...")
     print("📱 Access from any device at:")
-    print("   Local: http://127.0.0.1:5000")
-    print("   Network: http://<your-ip>:5000")
-    print("\n📱 On iOS/iPadOS: Open Safari and go to http://<your-mac-ip>:5000")
+    print(f"   Mac Hostname: http://{hostname}:8080")
+    print("   Local: http://127.0.0.1:8080")
+    print(f"\n📱 On iPhone/iPad: Open Safari and go to:")
+    print(f"   http://{hostname}:8080")
+    print("\n💡 Tip: Add to home screen for app-like experience!")
     print("Press Ctrl+C to stop\n")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)
 
