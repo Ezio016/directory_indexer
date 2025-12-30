@@ -55,20 +55,34 @@
     },
     {
       "number": "2",
+      "name": "directory_index.json",
+      "type": "file",
+      "path": "directory_index.json",
+      "children": []
+    },
+    {
+      "number": "3",
       "name": "directory_index.txt",
       "type": "file",
       "path": "directory_index.txt",
       "children": []
     },
     {
-      "number": "3",
+      "number": "4",
+      "name": "directory_index.xml",
+      "type": "file",
+      "path": "directory_index.xml",
+      "children": []
+    },
+    {
+      "number": "5",
       "name": "ReadMe.txt",
       "type": "file",
       "path": "ReadMe.txt",
       "children": []
     },
     {
-      "number": "4",
+      "number": "6",
       "name": "root_file.txt",
       "type": "file",
       "path": "root_file.txt",

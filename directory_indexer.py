@@ -5,12 +5,13 @@ Creates hierarchical numbering (IP-style) for directory contents
 Outputs stored inside the indexed folder
 
 Usage:
-    reindex /path/to/folder -t          # Generate TXT index
-    reindex /path/to/folder -t -w       # Generate TXT + new ReadMe.txt
-    reindex /path/to/folder -t -u       # Update TXT index
-    reindex /path/to/folder -j          # Generate JSON index
-    reindex /path/to/folder -x          # Generate XML index
-    reindex /path/to/folder -t -j -x    # Generate all formats
+    reindex /path/to/folder           # Generate all formats (TXT, JSON, XML)
+    reindex /path/to/folder -t        # TXT only
+    reindex /path/to/folder -j        # JSON only
+    reindex /path/to/folder -x        # XML only
+    reindex /path/to/folder -w        # All formats + new ReadMe.txt
+    reindex /path/to/folder -t -w     # TXT + ReadMe.txt
+    reindex /path/to/folder -u        # Update (same as no flag)
 """
 
 import os
@@ -19,18 +20,14 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from pathlib import Path
 import argparse
-import subprocess
-import platform
-from typing import Iterator, Dict, Any, Callable, List, Optional
+from typing import Dict, Any, Callable, List, Optional
 from datetime import datetime
 
 
 # ==================== HYBRID PIPELINE ====================
 
 class HybridPipeline:
-    """
-    Optimized scanning with periodic progress yields
-    """
+    """Optimized scanning with periodic progress yields"""
     
     def __init__(self):
         self.item_count = 0
@@ -96,7 +93,7 @@ class HybridPipeline:
 # ==================== OUTPUT GENERATORS ====================
 
 def generate_txt(data: Dict[str, Any]) -> str:
-    """Generate TXT output (no icons)"""
+    """Generate TXT output"""
     lines = [
         f"Directory Index: {data['root']}",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -153,7 +150,6 @@ def generate_xml(data: Dict[str, Any]) -> str:
 def generate_readme(folder_name: str, item_count: int, hierarchy: List[Dict]) -> str:
     """Generate ReadMe.txt with folder overview"""
     
-    # Count directories and files
     def count_types(items):
         dirs = 0
         files = 0
@@ -169,9 +165,8 @@ def generate_readme(folder_name: str, item_count: int, hierarchy: List[Dict]) ->
     
     dir_count, file_count = count_types(hierarchy)
     
-    # Get top-level items
     top_items = []
-    for item in hierarchy[:10]:  # First 10
+    for item in hierarchy[:10]:
         type_marker = "[D]" if item["type"] == "directory" else "[F]"
         top_items.append(f"  {item['number']}. {type_marker} {item['name']}")
     
@@ -300,17 +295,16 @@ class DirectoryIndexer:
 def main():
     parser = argparse.ArgumentParser(
         prog='reindex',
-        description='Index directory with hierarchical numbering. Output stored in indexed folder.',
+        description='Index directory with hierarchical numbering.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  reindex /path/to/folder -t          Generate TXT index
-  reindex /path/to/folder -t -w       Generate TXT + new ReadMe.txt  
-  reindex /path/to/folder -t -u       Update existing TXT index
-  reindex /path/to/folder -j          Generate JSON index
-  reindex /path/to/folder -x          Generate XML index
-  reindex /path/to/folder -t -j -x    Generate all formats
-  reindex /path/to/folder -t -j -x -w Generate all + ReadMe
+  reindex /path/to/folder           All formats (TXT, JSON, XML)
+  reindex /path/to/folder -t        TXT only
+  reindex /path/to/folder -j        JSON only
+  reindex /path/to/folder -x        XML only
+  reindex /path/to/folder -w        All formats + ReadMe.txt
+  reindex /path/to/folder -t -w     TXT + ReadMe.txt
 """
     )
     
@@ -321,39 +315,33 @@ Examples:
     )
     
     parser.add_argument(
-        "-t", "--txt",
+        "-t",
         action="store_true",
-        help="Generate TXT output"
+        help="TXT format only"
     )
     
     parser.add_argument(
-        "-j", "--json",
+        "-j",
         action="store_true",
-        help="Generate JSON output"
+        help="JSON format only"
     )
     
     parser.add_argument(
-        "-x", "--xml",
+        "-x",
         action="store_true",
-        help="Generate XML output"
+        help="XML format only"
     )
     
     parser.add_argument(
-        "-w", "--write-readme",
+        "-w",
         action="store_true",
-        help="Write new ReadMe.txt"
+        help="Write ReadMe.txt"
     )
     
     parser.add_argument(
-        "-u", "--update",
+        "-u",
         action="store_true",
-        help="Update existing index (same as running without -w)"
-    )
-    
-    parser.add_argument(
-        "-a", "--all",
-        action="store_true",
-        help="Generate all formats (TXT, JSON, XML)"
+        help="Update existing index"
     )
     
     args = parser.parse_args()
@@ -378,15 +366,23 @@ Examples:
         return 1
     
     # Determine formats
-    formats = {
-        'txt': args.txt or args.all,
-        'json': args.json or args.all,
-        'xml': args.xml or args.all
-    }
+    # If any specific format is specified, use only those
+    # Otherwise, generate all formats
+    specific_format = args.t or args.j or args.x
     
-    # Default to TXT if no format specified
-    if not any(formats.values()):
-        formats['txt'] = True
+    if specific_format:
+        formats = {
+            'txt': args.t,
+            'json': args.j,
+            'xml': args.x
+        }
+    else:
+        # Default: all formats
+        formats = {
+            'txt': True,
+            'json': True,
+            'xml': True
+        }
     
     # Create indexer and run
     indexer = DirectoryIndexer(target_dir)
@@ -395,7 +391,7 @@ Examples:
         indexer.scan()
         indexer.generate_outputs(
             formats=formats,
-            write_readme=args.write_readme
+            write_readme=args.w
         )
         print("\nDone!")
         

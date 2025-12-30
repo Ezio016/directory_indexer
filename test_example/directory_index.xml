@@ -1,5 +1,5 @@
 <?xml version="1.0" ?>
-<directory_index root_path="/Users/myat.min.thant/Dropbox/Mac/Desktop/VibeCodingHV/DirHierarchy/test_example" generated="2025-12-30 12:41:23">
+<directory_index root_path="/Users/myat.min.thant/Dropbox/Mac/Desktop/VibeCodingHV/DirHierarchy/test_example" generated="2025-12-30 12:48:03">
   <item number="1" type="directory">
     <name>level1</name>
     <path>level1</path>
@@ -35,14 +35,22 @@
     </children>
   </item>
   <item number="2" type="file">
+    <name>directory_index.json</name>
+    <path>directory_index.json</path>
+  </item>
+  <item number="3" type="file">
     <name>directory_index.txt</name>
     <path>directory_index.txt</path>
   </item>
-  <item number="3" type="file">
+  <item number="4" type="file">
+    <name>directory_index.xml</name>
+    <path>directory_index.xml</path>
+  </item>
+  <item number="5" type="file">
     <name>ReadMe.txt</name>
     <path>ReadMe.txt</path>
   </item>
-  <item number="4" type="file">
+  <item number="6" type="file">
     <name>root_file.txt</name>
     <path>root_file.txt</path>
   </item>
