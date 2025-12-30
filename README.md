@@ -1,216 +1,95 @@
-# 📱 Directory Hierarchy Indexer
+# Directory Indexer
 
-A cross-platform app (and Python tool) to create hierarchical numbering (IP-style like 1.1.1) for directory contents and export to JSON, XML, and TXT formats.
+Create hierarchical numbering (1, 1.1, 1.1.1, etc.) for any directory. Exports to JSON, XML, and TXT.
 
-## ⭐ NEW: Progressive Web App
+---
 
-**Install as a real app on ANY device!**
-- ✅ iPhone / iPad
-- ✅ Android
-- ✅ Mac / Windows / Linux
-- ✅ No App Store required
-- ✅ Works offline after installation
+## Installation
 
-👉 **[Get Started with the App →](APP_GUIDE.md)** | **[Quick Start →](QUICKSTART.md)**
+### Desktop (Mac/Linux):
+```bash
+chmod +x directory_indexer.py
+sudo ln -sf $(pwd)/directory_indexer.py /usr/local/bin/dirindex
+```
 
-## Features
+### Windows:
+```cmd
+# Add directory_indexer.py to PATH, or run directly:
+python directory_indexer.py /path/to/folder
+```
 
-- 📁 Recursively scans directories
-- 🔢 Assigns hierarchical numbering (1, 1.1, 1.1.1, etc.)
-- 📦 Outputs to JSON, XML, and indented TXT formats
-- 🎯 Simple command-line interface
-- ✨ Easy to test and use
-- 📂 Automatically opens the TXT file in Finder when done
-- 🔤 Items sorted alphabetically (directories first, then files)
+### Mobile (iPhone/iPad/Android):
+Visit: https://ezio016.github.io/directory_indexer/  
+Tap "Add to Home Screen" to install as app.
+
+---
 
 ## Usage
 
-### Basic Usage
-
+### Command-Line:
 ```bash
-python directory_indexer.py /path/to/directory
+dirindex /path/to/folder                 # Basic usage
+dirindex ~/Documents -o ~/Desktop        # Custom output location
+dirindex ~/Documents --output-in-target  # Save inside target folder
+dirindex ~/Documents -i                  # Interactive mode
 ```
 
-Or run without arguments to be prompted:
+### Mobile App:
+1. Open app
+2. Select folder from your device
+3. Choose formats (JSON/XML/TXT)
+4. Generate & download
 
-```bash
-python directory_indexer.py
-# Enter directory path to index: /path/to/directory
+---
+
+## Output Example
+
 ```
+Items_in_YourFolder/
+├── directory_index.json
+├── directory_index.xml
+└── directory_index.txt
 
-### Options
-
-```bash
-# Skip certain output formats
-dirindex /path/to/dir --no-json
-dirindex /path/to/dir --no-xml
-dirindex /path/to/dir --no-txt
-
-# Don't automatically open the TXT file
-dirindex /path/to/dir --no-open
-
-# Output location options
-dirindex /path/to/dir                    # Default: current directory
-dirindex /path/to/dir -o ~/Desktop       # Custom location
-dirindex /path/to/dir --output-in-target # Inside the target directory
-dirindex /path/to/dir -i                 # Interactive: ask where to save
-
-# Combine options
-dirindex /path/to/dir --no-xml --no-open -o ./results
-```
-
-### Examples
-
-1. **Index the current directory:**
-   ```bash
-   python directory_indexer.py .
-   ```
-
-2. **Index a specific folder:**
-   ```bash
-   python directory_indexer.py ~/Documents/MyProject
-   ```
-
-3. **Create only TXT output:**
-   ```bash
-   python directory_indexer.py ~/Documents --no-json --no-xml
-   ```
-
-## 🌐 Web Interface (For iOS/iPad/Remote Access)
-
-Access the indexer from **any device** including iPhone, iPad, or remote computers:
-
-### Start the Web Server:
-
-```bash
-# Install Flask (one time only)
-pip3 install -r requirements.txt
-
-# Start the server
-python3 web_server.py
-```
-
-### Access from any device:
-
-1. **On the same network**: Open browser and go to `http://YOUR_IP:5000`
-2. **From iPhone/iPad**: See [IOS_SETUP.md](IOS_SETUP.md) for full guide
-3. Enter directory path, generate index, and download files
-
-**Features:**
-- 📱 Mobile-friendly interface
-- 🎨 Beautiful, modern UI
-- 💾 Direct download to device
-- 🔄 Works on all platforms
-
-## Output Formats
-
-### JSON Format
-```json
-{
-  "root": "/path/to/directory",
-  "hierarchy": [
-    {
-      "number": "1",
-      "name": "folder1",
-      "type": "directory",
-      "path": "folder1",
-      "children": [
-        {
-          "number": "1.1",
-          "name": "subfolder",
-          "type": "directory",
-          "path": "folder1/subfolder",
-          "children": []
-        }
-      ]
-    }
-  ]
-}
-```
-
-### TXT Format
-```
-Directory Index: /path/to/directory
-================================================================================
-
-1. 📁 folder1
-  1.1. 📁 subfolder
+1. 📁 Documents
+  1.1. 📁 Projects
     1.1.1. 📄 file.txt
-    1.1.2. 📄 document.pdf
   1.2. 📄 readme.md
-2. 📁 folder2
-  2.1. 📄 data.json
 ```
 
-### XML Format
-```xml
-<?xml version="1.0" ?>
-<directory_index root_path="/path/to/directory">
-  <item number="1" type="directory">
-    <name>folder1</name>
-    <path>folder1</path>
-    <children>
-      <item number="1.1" type="file">
-        <name>file.txt</name>
-        <path>folder1/file.txt</path>
-      </item>
-    </children>
-  </item>
-</directory_index>
-```
+---
 
-## Output Files
-
-The script automatically creates a folder named `Items_in_[FolderName]` (where FolderName is the name of the directory you're indexing) and places three files inside:
-- `directory_index.json`
-- `directory_index.xml`
-- `directory_index.txt`
-
-**Example:** If you index a folder called `MyProject`, the output folder will be `Items_in_MyProject/`
-
-## Requirements
-
-- Python 3.6 or higher
-- No external dependencies (uses only standard library)
-- **Web interface**: Flask (optional, for iOS/web access)
-
-## Platform Support
-
-✅ **Desktop:**
-- macOS (tested)
-- Windows (cross-platform compatible)
-- Linux (cross-platform compatible)
-
-✅ **Mobile:**
-- iPhone/iPad via web interface
-- See [IOS_SETUP.md](IOS_SETUP.md) for detailed instructions
-
-## Global Installation (Optional)
-
-To use `dirindex` from anywhere on your system:
+## Options
 
 ```bash
-# Make the script executable
-chmod +x /path/to/directory_indexer.py
-
-# Create a global symlink (requires sudo)
-sudo ln -sf /path/to/directory_indexer.py /usr/local/bin/dirindex
-
-# Now use it from anywhere!
-dirindex /path/to/folder
-
-# Or drag and drop folders:
-dirindex [drag folder here from Finder]
+--no-json            # Skip JSON output
+--no-xml             # Skip XML output
+--no-txt             # Skip TXT output
+--no-open            # Don't auto-open files
+-o, --output-dir     # Custom output location
+--output-in-target   # Save inside target folder
+-i, --interactive    # Ask where to save
 ```
 
-**To remove:**
-```bash
-sudo rm /usr/local/bin/dirindex
-```
+---
 
-## Notes
+## Features
 
-- Hidden files (starting with `.`) are automatically skipped
-- Items are sorted: directories first, then files, alphabetically within each group
-- The script handles permission errors gracefully
+- Hierarchical numbering (IP-style: 1.1.1)
+- Multiple export formats (JSON, XML, TXT)
+- Alphabetically sorted
+- Works on all platforms
+- Mobile app for iOS/Android
+- Privacy-focused (files stay on device)
 
+---
+
+## Mobile Limitations
+
+Mobile app can only access files **locally on the device**.  
+For cloud files (iCloud, Dropbox), use the command-line tool on desktop.
+
+---
+
+## License
+
+MIT License - See LICENSE file
