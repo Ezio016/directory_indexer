@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="DirIndex">
     
-    <title>Directory Indexer - Pipes & Filters Architecture</title>
+    <title>Directory Indexer - Streaming Architecture</title>
     <link rel="manifest" href="app/static/manifest.json">
     <link rel="apple-touch-icon" href="app/static/icon-192.png">
     
@@ -72,6 +72,15 @@
             font-size: 0.9em;
         }
         
+        .info-box.success {
+            background: #e8f5e9;
+            border-left-color: #4caf50;
+        }
+        
+        .info-box.success p {
+            color: #2e7d32;
+        }
+        
         .upload-section {
             margin-bottom: 20px;
         }
@@ -91,6 +100,7 @@
             align-items: center;
             justify-content: center;
             gap: 10px;
+            transition: transform 0.1s, opacity 0.2s;
         }
         
         .folder-btn:active {
@@ -129,6 +139,7 @@
             font-weight: 600;
             cursor: pointer;
             margin-top: 10px;
+            transition: transform 0.1s;
         }
         
         .process-btn:active {
@@ -205,25 +216,62 @@
             font-size: 0.9em;
         }
         
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: #e0e0e0;
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 10px 0;
+        .progress-container {
+            margin: 15px 0;
             display: none;
         }
         
-        .progress-bar.show {
+        .progress-container.show {
             display: block;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background: #e0e0e0;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 8px 0;
         }
         
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #667eea, #764ba2);
             width: 0%;
-            transition: width 0.3s;
+            transition: width 0.15s ease-out;
+        }
+        
+        .progress-text {
+            font-size: 0.85em;
+            color: #666;
+            text-align: center;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-item {
+            background: #f0f0f0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+        }
+        
+        .stat-item strong {
+            color: #667eea;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        
+        .processing {
+            animation: pulse 1.5s infinite;
         }
     </style>
 </head>
@@ -232,15 +280,15 @@
         <div class="header">
             <div class="app-icon">📁</div>
             <h1>Directory Indexer</h1>
-            <p class="subtitle">Pipes & Filters Architecture + Event-Driven UI</p>
+            <p class="subtitle">Streaming Pipes & Filters + Web Workers</p>
         </div>
         
-        <div class="info-box">
-            <p><strong>✨ Works completely on your device!</strong></p>
-            <p>📱 iPhone, iPad, Android, Mac, Windows, Linux</p>
+        <div class="info-box success" id="infoBox">
+            <p><strong>✨ Now handles large folders!</strong></p>
+            <p>📱 Works on iPhone, iPad, Android, Mac, Windows, Linux</p>
             <p>🔒 Your files never leave your device</p>
-            <p>💡 Best for folders with < 1,000 files</p>
-            <p>🖥️ For large folders: use command-line tool on desktop</p>
+            <p>⚡ Streaming architecture prevents freezing</p>
+            <p>🧵 Web Worker keeps UI responsive</p>
         </div>
         
         <div class="warning" id="compatWarning" style="display: none;">
@@ -252,13 +300,17 @@
                 📂 Select Folder from Your Device
             </button>
             
-            <div class="progress-bar" id="progressBar">
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
                 <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Initializing...</div>
             </div>
             
             <div class="selected-folder" id="selectedInfo">
                 <strong>Selected:</strong> <span id="folderName"></span><br>
                 <strong>Files:</strong> <span id="fileCount">0</span> items
+                <div class="stats" id="statsContainer"></div>
             </div>
             
             <div id="formatOptions" style="display: none; margin: 15px 0;">
@@ -288,283 +340,365 @@
     </div>
     
     <script>
-        // ==================== EVENT BUS (Event-Driven) ====================
+        // ==================== STREAMING FILE READER ====================
         
-        class EventBus {
-            constructor() {
-                this.listeners = {};
+        /**
+         * Async generator that reads directory entries in chunks
+         * Yields control back to UI after each chunk
+         */
+        async function* streamDirectoryEntries(dirHandle, basePath = '', chunkSize = 50) {
+            let buffer = [];
+            
+            for await (const entry of dirHandle.values()) {
+                if (entry.name.startsWith('.')) continue;
+                
+                const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+                
+                buffer.push({
+                    path: fullPath,
+                    name: entry.name,
+                    isDir: entry.kind === 'directory',
+                    handle: entry.kind === 'directory' ? entry : null
+                });
+                
+                // Yield chunk when buffer is full
+                if (buffer.length >= chunkSize) {
+                    yield buffer;
+                    buffer = [];
+                    // Yield to UI
+                    await new Promise(r => setTimeout(r, 0));
+                }
             }
             
-            on(event, callback) {
-                if (!this.listeners[event]) {
-                    this.listeners[event] = [];
-                }
-                this.listeners[event].push(callback);
-            }
-            
-            emit(event, data) {
-                if (this.listeners[event]) {
-                    this.listeners[event].forEach(callback => callback(data));
-                }
+            // Yield remaining items
+            if (buffer.length > 0) {
+                yield buffer;
             }
         }
         
-        const eventBus = new EventBus();
-        
-        // ==================== FILTER FUNCTIONS ====================
-        
-        // Filter 1: Read directory
-        async function filterReadDirectory(dirHandle) {
-            const files = [];
+        /**
+         * Recursively read entire directory tree using streaming
+         * Never loads everything into memory at once
+         */
+        async function* streamDirectoryTreeFlat(dirHandle, basePath = '', onProgress = null) {
+            const queue = [{ handle: dirHandle, path: basePath }];
+            let totalYielded = 0;
             
-            async function traverse(handle, path = '') {
-                for await (const entry of handle.values()) {
-                    if (entry.name.startsWith('.')) continue;
-                    
-                    const fullPath = path ? `${path}/${entry.name}` : entry.name;
-                    
-                    files.push({
-                        path: fullPath,
+            while (queue.length > 0) {
+                const { handle, path } = queue.shift();
+                
+                try {
+                    for await (const chunk of streamDirectoryEntries(handle, path)) {
+                        for (const entry of chunk) {
+                            // Queue subdirectories for later processing
+                            if (entry.isDir && entry.handle) {
+                                queue.push({ handle: entry.handle, path: entry.path });
+                            }
+                            
+                            // Yield entry without handle (not needed downstream)
+                            yield {
+                                path: entry.path,
                         name: entry.name,
-                        isDir: entry.kind === 'directory'
-                    });
-                    
-                    // Event-Driven: Emit progress
-                    eventBus.emit('progress', {
-                        step: 'reading',
-                        count: files.length,
-                        message: `Reading... ${files.length} items`
-                    });
-                    
-                    // UI yielding every 50 files
-                    if (files.length % 50 === 0) {
-                        await new Promise(resolve => setTimeout(resolve, 0));
+                                isDir: entry.isDir
+                            };
+                            
+                            totalYielded++;
+                            if (onProgress && totalYielded % 100 === 0) {
+                                onProgress(totalYielded);
+                            }
+                        }
                     }
-                    
-                    // Safety limit
-                    if (files.length > 10000) {
-                        throw new Error('Too many items! Limit: 10,000 files. Try a smaller folder.');
-                    }
-                    
-                    // Recurse if directory
-                    if (entry.kind === 'directory') {
-                        await traverse(entry, fullPath);
-                    }
+                } catch (err) {
+                    console.warn(`Error reading ${path}:`, err.message);
+                }
+            }
+        }
+        
+        /**
+         * Collect stream into array with progress updates
+         * Uses chunked collection to stay responsive
+         */
+        async function collectStreamWithProgress(asyncGenerator, onProgress, maxItems = 100000) {
+            const items = [];
+            
+            for await (const item of asyncGenerator) {
+                items.push(item);
+                
+                if (items.length > maxItems) {
+                    throw new Error(`Folder too large (>${maxItems} items). Try a subfolder.`);
+                }
+                
+                // Progress update every 50 items
+                if (items.length % 50 === 0) {
+                    onProgress(items.length);
+                    // Yield to UI
+                    await new Promise(r => setTimeout(r, 0));
                 }
             }
             
-            await traverse(dirHandle);
-            return files;
-        }
+            return items;
+                    }
+                    
+        // ==================== WEB WORKER MANAGER ====================
         
-        // Filter 2: Sort files
-        function filterSort(files) {
-            return [...files].sort((a, b) => {
+        class WorkerManager {
+            constructor() {
+                this.worker = null;
+                this.pendingResolve = null;
+                this.pendingReject = null;
+                this.onProgress = null;
+            }
+            
+            init() {
+                if (this.worker) return;
+                
+                try {
+                    this.worker = new Worker('app/static/worker.js');
+                    this.worker.onmessage = this.handleMessage.bind(this);
+                    this.worker.onerror = this.handleError.bind(this);
+                } catch (e) {
+                    console.warn('Web Worker not available, falling back to main thread');
+                    this.worker = null;
+                }
+            }
+            
+            handleMessage(e) {
+                const { type, ...data } = e.data;
+                
+                switch (type) {
+                    case 'progress':
+                        if (this.onProgress) {
+                            this.onProgress(data);
+                        }
+                        break;
+                    
+                    case 'hierarchyComplete':
+                    case 'outputsComplete':
+                        if (this.pendingResolve) {
+                            this.pendingResolve(data);
+                            this.pendingResolve = null;
+                            this.pendingReject = null;
+                        }
+                        break;
+                    
+                    case 'error':
+                        if (this.pendingReject) {
+                            this.pendingReject(new Error(data.message));
+                            this.pendingResolve = null;
+                            this.pendingReject = null;
+                        }
+                        break;
+                }
+            }
+            
+            handleError(e) {
+                console.error('Worker error:', e);
+                if (this.pendingReject) {
+                    this.pendingReject(new Error('Worker error: ' + e.message));
+                    }
+                }
+            
+            processFiles(files, onProgress) {
+                return new Promise((resolve, reject) => {
+                    if (!this.worker) {
+                        // Fallback: process on main thread
+                        resolve(this.processFilesMainThread(files, onProgress));
+                        return;
+                    }
+                    
+                    this.pendingResolve = resolve;
+                    this.pendingReject = reject;
+                    this.onProgress = onProgress;
+                    
+                    this.worker.postMessage({
+                        action: 'processFiles',
+                        payload: { files }
+                    });
+                });
+            }
+            
+            generateOutputs(hierarchy, folderName, formats, onProgress) {
+                return new Promise((resolve, reject) => {
+                    if (!this.worker) {
+                        // Fallback: process on main thread
+                        resolve(this.generateOutputsMainThread(hierarchy, folderName, formats, onProgress));
+                        return;
+                    }
+                    
+                    this.pendingResolve = resolve;
+                    this.pendingReject = reject;
+                    this.onProgress = onProgress;
+                    
+                    this.worker.postMessage({
+                        action: 'generateOutputs',
+                        payload: { hierarchy, folderName, formats }
+                    });
+                });
+            }
+            
+            // Fallback implementations for main thread
+            processFilesMainThread(files, onProgress) {
+                onProgress({ step: 'sort', message: 'Sorting files...' });
+                
+                const sorted = [...files].sort((a, b) => {
                 if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
                 return a.path.localeCompare(b.path);
             });
-        }
         
-        // Filter 3: Build hierarchy with numbering
-        function filterBuildHierarchy(files) {
-            const tree = [];
-            
-            files.forEach(file => {
-                const parts = file.path.split('/').filter(p => p);
-                let current = tree;
-                let numbering = [];
-                let currentPath = '';
+                onProgress({ step: 'hierarchy', message: 'Building hierarchy...' });
                 
-                parts.forEach((part, index) => {
+            const tree = [];
+                const pathToNode = new Map();
+            
+                for (const file of sorted) {
+                const parts = file.path.split('/').filter(p => p);
+                    let currentLevel = tree;
+                let currentPath = '';
+                    let numbering = [];
+                
+                    for (let i = 0; i < parts.length; i++) {
+                        const part = parts[i];
                     currentPath = currentPath ? `${currentPath}/${part}` : part;
-                    const isLast = index === parts.length - 1;
+                        const isLast = i === parts.length - 1;
                     
-                    let existing = current.find(item => item.name === part);
+                        let existing = pathToNode.get(currentPath);
                     
                     if (!existing) {
-                        const position = current.length + 1;
-                        numbering.push(position);
+                            const position = currentLevel.length + 1;
+                            const newNumbering = [...numbering, position];
                         
                         existing = {
-                            number: numbering.join('.'),
+                                number: newNumbering.join('.'),
                             name: part,
                             type: isLast && !file.isDir ? 'file' : 'directory',
                             path: currentPath,
                             children: []
                         };
                         
-                        current.push(existing);
-                    } else {
+                            currentLevel.push(existing);
+                            pathToNode.set(currentPath, existing);
+                        }
+                        
                         numbering = existing.number.split('.').map(Number);
+                        currentLevel = existing.children;
                     }
-                    
-                    current = existing.children;
-                });
-            });
+                }
             
-            return tree;
+                return { hierarchy: tree, itemCount: files.length };
         }
         
-        // Output Filter: Convert to JSON
-        function filterToJSON(data) {
-            return JSON.stringify(data, null, 2);
+            generateOutputsMainThread(hierarchy, folderName, formats, onProgress) {
+                const data = { root: folderName, hierarchy };
+                const outputs = {};
+                
+                if (formats.json) {
+                    onProgress({ step: 'json', message: 'Generating JSON...' });
+                    outputs.json = JSON.stringify(data, null, 2);
         }
         
-        // Output Filter: Convert to XML
-        function filterToXML(data) {
+                if (formats.xml) {
+                    onProgress({ step: 'xml', message: 'Generating XML...' });
+                    outputs.xml = this.generateXML(data);
+                }
+                
+                if (formats.txt) {
+                    onProgress({ step: 'txt', message: 'Generating TXT...' });
+                    outputs.txt = this.generateTXT(data);
+                }
+                
+                return { outputs };
+            }
+            
+            generateXML(data) {
             let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
             xml += `<directory_index root_path="${escapeXml(data.root)}">\n`;
             
-            function addItems(items, indent = 1) {
+                const addItems = (items, indent = 1) => {
                 const spaces = '  '.repeat(indent);
-                items.forEach(item => {
+                    for (const item of items) {
                     xml += `${spaces}<item number="${item.number}" type="${item.type}">\n`;
                     xml += `${spaces}  <name>${escapeXml(item.name)}</name>\n`;
                     xml += `${spaces}  <path>${escapeXml(item.path)}</path>\n`;
-                    if (item.children && item.children.length > 0) {
+                        if (item.children?.length > 0) {
                         xml += `${spaces}  <children>\n`;
                         addItems(item.children, indent + 2);
                         xml += `${spaces}  </children>\n`;
                     }
                     xml += `${spaces}</item>\n`;
-                });
             }
+                };
             
             addItems(data.hierarchy);
             xml += '</directory_index>';
             return xml;
         }
         
-        // Output Filter: Convert to TXT
-        function filterToTXT(data) {
+            generateTXT(data) {
             let txt = `Directory Index: ${data.root}\n`;
             txt += '='.repeat(80) + '\n\n';
             
-            function formatItem(item, depth = 0) {
+                const formatItem = (item, depth = 0) => {
                 const indent = '  '.repeat(depth);
                 const icon = item.type === 'directory' ? '📁' : '📄';
-                let result = `${indent}${item.number}. ${icon} ${item.name}\n`;
-                
-                if (item.children) {
-                    item.children.forEach(child => {
-                        result += formatItem(child, depth + 1);
-                    });
-                }
-                
-                return result;
-            }
+                    txt += `${indent}${item.number}. ${icon} ${item.name}\n`;
+                    item.children?.forEach(child => formatItem(child, depth + 1));
+                };
             
-            data.hierarchy.forEach(item => {
-                txt += formatItem(item);
-            });
-            
+                data.hierarchy.forEach(item => formatItem(item));
             return txt;
-        }
-        
-        // ==================== PIPELINE CLASS ====================
-        
-        class Pipeline {
-            constructor(name = 'Pipeline') {
-                this.filters = [];
-                this.name = name;
-            }
-            
-            addFilter(filterFunc, filterName = null) {
-                this.filters.push({ func: filterFunc, name: filterName || filterFunc.name });
-                return this;
-            }
-            
-            async execute(input) {
-                let data = input;
-                
-                for (let i = 0; i < this.filters.length; i++) {
-                    const { func, name } = this.filters[i];
-                    
-                    // Event-Driven: Emit step progress
-                    eventBus.emit('pipeline', {
-                        step: i + 1,
-                        total: this.filters.length,
-                        filterName: name,
-                        message: `Step ${i + 1}/${this.filters.length}: ${name}`
-                    });
-                    
-                    // Execute filter
-                    data = await func(data);
-                    
-                    // UI yield
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                }
-                
-                return data;
             }
         }
         
-        // ==================== STATE & GLOBALS ====================
+        // ==================== STATE ====================
         
-        let selectedFiles = [];
         let folderName = '';
         let folderHandle = null;
+        let collectedFiles = [];
         let hierarchy = [];
+        const workerManager = new WorkerManager();
         
-        // ==================== EVENT LISTENERS (Event-Driven UI) ====================
+        // ==================== UI HELPERS ====================
         
-        // Progress event listener
-        eventBus.on('progress', (data) => {
-            const btn = document.getElementById('selectBtn');
-            btn.textContent = `⏳ ${data.message}`;
-            
-            const progressBar = document.getElementById('progressBar');
-            const progressFill = document.getElementById('progressFill');
-            progressBar.classList.add('show');
-            
-            // Estimate progress (rough)
-            const percentage = Math.min((data.count / 100) * 10, 90);
-            progressFill.style.width = `${percentage}%`;
-        });
+        function showProgress(show = true) {
+            document.getElementById('progressContainer').classList.toggle('show', show);
+        }
         
-        // Pipeline step event listener
-        eventBus.on('pipeline', (data) => {
-            const btn = document.getElementById('processBtn');
-            btn.textContent = `⏳ ${data.message}`;
-            
-            const progressFill = document.getElementById('progressFill');
-            const percentage = (data.step / data.total) * 100;
-            progressFill.style.width = `${percentage}%`;
-        });
+        function updateProgress(percent, text) {
+            document.getElementById('progressFill').style.width = `${percent}%`;
+            document.getElementById('progressText').textContent = text;
+        }
         
-        // Complete event listener
-        eventBus.on('complete', (data) => {
-            const progressBar = document.getElementById('progressBar');
-            progressBar.classList.remove('show');
-            
-            const progressFill = document.getElementById('progressFill');
-            progressFill.style.width = '0%';
-        });
+        function showError(message) {
+            const result = document.getElementById('result');
+            result.className = 'show error';
+            result.innerHTML = `<h3>❌ Error</h3><p>${message}</p>`;
+            showProgress(false);
+        }
         
-        // Error event listener
-        eventBus.on('error', (error) => {
-            showError(error.message);
-            
-            const progressBar = document.getElementById('progressBar');
-            progressBar.classList.remove('show');
-            
-            const selectBtn = document.getElementById('selectBtn');
-            selectBtn.disabled = false;
-            selectBtn.textContent = '📂 Select Folder from Your Device';
-            
-            const processBtn = document.getElementById('processBtn');
-            processBtn.disabled = false;
-            processBtn.textContent = '🚀 Generate Index';
-        });
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
         
-        // ==================== UI HANDLERS ====================
+        function escapeXml(str) {
+            return str.replace(/[<>&'"]/g, char => ({
+                '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;'
+            })[char]);
+        }
         
-        // Check browser compatibility
+        // ==================== MAIN FLOW ====================
+        
+        // Check compatibility
         if (!('showDirectoryPicker' in window)) {
             document.getElementById('compatWarning').style.display = 'block';
             setupFileInputFallback();
         }
         
+        // Initialize worker
+        workerManager.init();
+        
+        // Select folder button
         document.getElementById('selectBtn').addEventListener('click', async () => {
             try {
                 if ('showDirectoryPicker' in window) {
@@ -574,41 +708,73 @@
                 }
             } catch (error) {
                 if (error.name !== 'AbortError') {
-                    eventBus.emit('error', error);
+                    showError(error.message);
                 }
             }
         });
         
         async function selectFolderModern() {
+            const selectBtn = document.getElementById('selectBtn');
+            
             try {
                 folderHandle = await window.showDirectoryPicker();
                 folderName = folderHandle.name;
                 
-                document.getElementById('selectBtn').disabled = true;
-                document.getElementById('selectBtn').textContent = '⏳ Scanning...';
+                selectBtn.disabled = true;
+                selectBtn.classList.add('processing');
+                selectBtn.textContent = '⏳ Reading folder...';
+                showProgress(true);
+                updateProgress(0, 'Starting scan...');
                 
-                // Build pipeline for reading
-                const readPipeline = new Pipeline('Read Pipeline');
-                selectedFiles = await readPipeline
-                    .addFilter(filterReadDirectory, 'Read Directory')
-                    .execute(folderHandle);
+                // Stream read with progress
+                const startTime = performance.now();
                 
-                eventBus.emit('complete', { step: 'reading' });
+                const progressCallback = (count) => {
+                    const elapsed = (performance.now() - startTime) / 1000;
+                    const rate = Math.round(count / elapsed);
+                    updateProgress(
+                        Math.min(90, (count / 1000) * 9), 
+                        `Reading... ${count.toLocaleString()} items (${rate}/sec)`
+                    );
+                };
                 
+                collectedFiles = await collectStreamWithProgress(
+                    streamDirectoryTreeFlat(folderHandle, '', progressCallback),
+                    progressCallback,
+                    100000 // Max 100k items
+                );
+                
+                updateProgress(100, `Found ${collectedFiles.length.toLocaleString()} items`);
+                
+                // Update UI
                 document.getElementById('folderName').textContent = folderName;
-                document.getElementById('fileCount').textContent = selectedFiles.length;
+                document.getElementById('fileCount').textContent = collectedFiles.length.toLocaleString();
+                
+                // Stats
+                const dirs = collectedFiles.filter(f => f.isDir).length;
+                const files = collectedFiles.length - dirs;
+                document.getElementById('statsContainer').innerHTML = `
+                    <div class="stat-item"><strong>${dirs.toLocaleString()}</strong> folders</div>
+                    <div class="stat-item"><strong>${files.toLocaleString()}</strong> files</div>
+                `;
+                
                 document.getElementById('selectedInfo').classList.add('show');
                 document.getElementById('formatOptions').style.display = 'block';
                 document.getElementById('processBtn').style.display = 'block';
-                document.getElementById('selectBtn').disabled = false;
-                document.getElementById('selectBtn').textContent = '📂 Select Another Folder';
-            } catch (error) {
-                document.getElementById('selectBtn').disabled = false;
-                document.getElementById('selectBtn').textContent = '📂 Select Folder from Your Device';
                 
-                if (error.message !== 'File limit exceeded') {
-                    console.error('Error reading folder:', error);
-                    eventBus.emit('error', error);
+                selectBtn.disabled = false;
+                selectBtn.classList.remove('processing');
+                selectBtn.textContent = '📂 Select Another Folder';
+                showProgress(false);
+                
+            } catch (error) {
+                selectBtn.disabled = false;
+                selectBtn.classList.remove('processing');
+                selectBtn.textContent = '📂 Select Folder from Your Device';
+                showProgress(false);
+                
+                if (error.name !== 'AbortError') {
+                    showError(error.message);
                 }
             }
         }
@@ -622,23 +788,28 @@
             input.style.display = 'none';
             document.body.appendChild(input);
             
-            input.addEventListener('change', (e) => {
+            input.addEventListener('change', async (e) => {
                 const files = Array.from(e.target.files);
                 if (files.length === 0) return;
                 
-                if (files.length > 10000) {
-                    alert('⚠️ Too many files (>10,000)!\n\nFor large folders, use the command-line tool on desktop.');
+                showProgress(true);
+                updateProgress(0, 'Processing files...');
+                
+                if (files.length > 100000) {
+                    showError('Too many files (>100,000). Try a smaller folder.');
                     return;
                 }
                 
                 folderName = files[0].webkitRelativePath.split('/')[0];
                 
-                selectedFiles = files.map(file => ({
+                // Build file list
+                collectedFiles = files.map(file => ({
                     path: file.webkitRelativePath.split('/').slice(1).join('/'),
                     isDir: false,
                     name: file.name
-                }));
+                })).filter(f => !f.name.startsWith('.'));
                 
+                // Add directories
                 const dirs = new Set();
                 files.forEach(file => {
                     const parts = file.webkitRelativePath.split('/');
@@ -648,111 +819,136 @@
                 });
                 
                 dirs.forEach(dir => {
-                    selectedFiles.push({
+                    if (!dir.split('/').some(p => p.startsWith('.'))) {
+                        collectedFiles.push({
                         path: dir,
                         isDir: true,
                         name: dir.split('/').pop()
                     });
+                    }
                 });
                 
-                selectedFiles.sort((a, b) => a.path.localeCompare(b.path));
+                updateProgress(100, `Found ${collectedFiles.length.toLocaleString()} items`);
                 
                 document.getElementById('folderName').textContent = folderName;
-                document.getElementById('fileCount').textContent = selectedFiles.length;
+                document.getElementById('fileCount').textContent = collectedFiles.length.toLocaleString();
                 document.getElementById('selectedInfo').classList.add('show');
                 document.getElementById('formatOptions').style.display = 'block';
                 document.getElementById('processBtn').style.display = 'block';
+                showProgress(false);
             });
         }
         
+        // Generate index button
         document.getElementById('processBtn').addEventListener('click', generateIndex);
         
         async function generateIndex() {
             const btn = document.getElementById('processBtn');
             btn.disabled = true;
+            btn.classList.add('processing');
             btn.textContent = '⏳ Processing...';
             
-            document.getElementById('progressBar').classList.add('show');
+            showProgress(true);
+            updateProgress(0, 'Starting...');
             
-            const genJSON = document.getElementById('checkJSON').checked;
-            const genXML = document.getElementById('checkXML').checked;
-            const genTXT = document.getElementById('checkTXT').checked;
+            const formats = {
+                json: document.getElementById('checkJSON').checked,
+                xml: document.getElementById('checkXML').checked,
+                txt: document.getElementById('checkTXT').checked
+            };
             
-            if (!genJSON && !genXML && !genTXT) {
-                eventBus.emit('error', { message: 'Please select at least one format to generate!' });
+            if (!formats.json && !formats.xml && !formats.txt) {
+                showError('Please select at least one format to generate!');
                 btn.disabled = false;
+                btn.classList.remove('processing');
                 btn.textContent = '🚀 Generate Index';
                 return;
             }
             
             try {
-                // Build processing pipeline
-                const processPipeline = new Pipeline('Process Pipeline');
+                // Step 1: Build hierarchy
+                updateProgress(10, 'Building hierarchy...');
                 
-                hierarchy = await processPipeline
-                    .addFilter(filterSort, 'Sort Files')
-                    .addFilter(filterBuildHierarchy, 'Build Hierarchy')
-                    .execute(selectedFiles);
-                
-                const data = {
-                    root: folderName,
-                    hierarchy: hierarchy
+                const progressHandler = (data) => {
+                    if (data.step === 'hierarchy' && data.processed) {
+                        const percent = 10 + (data.processed / collectedFiles.length) * 40;
+                        updateProgress(percent, `Building hierarchy... ${data.processed}/${collectedFiles.length}`);
+                    } else if (data.step === 'json') {
+                        updateProgress(55, 'Generating JSON...');
+                    } else if (data.step === 'xml') {
+                        updateProgress(70, 'Generating XML...');
+                    } else if (data.step === 'txt') {
+                        updateProgress(85, 'Generating TXT...');
+                    }
                 };
                 
-                // Generate selected formats using output filters
-                const outputs = {};
-                if (genJSON) outputs.json = filterToJSON(data);
-                if (genXML) outputs.xml = filterToXML(data);
-                if (genTXT) outputs.txt = filterToTXT(data);
+                const hierarchyResult = await workerManager.processFiles(collectedFiles, progressHandler);
+                hierarchy = hierarchyResult.hierarchy;
                 
-                eventBus.emit('complete', { step: 'processing' });
+                // Step 2: Generate outputs
+                updateProgress(50, 'Generating outputs...');
                 
-                // Show result
+                const outputResult = await workerManager.generateOutputs(
+                    hierarchy, folderName, formats, progressHandler
+                );
+                
+                updateProgress(100, 'Complete!');
+                
+                // Show results
                 const result = document.getElementById('result');
                 result.className = 'show success';
                 
                 let downloadButtons = '';
-                if (outputs.json) {
-                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.json, 'directory_index.json', 'application/json')">📄 Download JSON</button>`;
+                if (outputResult.outputs.json) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFile('json')">📄 Download JSON</button>`;
                 }
-                if (outputs.xml) {
-                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.xml, 'directory_index.xml', 'application/xml')">📄 Download XML</button>`;
+                if (outputResult.outputs.xml) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFile('xml')">📄 Download XML</button>`;
                 }
-                if (outputs.txt) {
-                    downloadButtons += `<button class="download-btn" onclick="downloadFileContent(window.outputs.txt, 'directory_index.txt', 'text/plain')">📄 Download TXT</button>`;
+                if (outputResult.outputs.txt) {
+                    downloadButtons += `<button class="download-btn" onclick="downloadFile('txt')">📄 Download TXT</button>`;
                 }
                 
-                window.outputs = outputs;
+                window.generatedOutputs = outputResult.outputs;
                 
                 result.innerHTML = `
                     <h3>✅ Index Generated!</h3>
                     <p><strong>Folder:</strong> ${folderName}</p>
-                    <p><strong>Items:</strong> ${selectedFiles.length}</p>
+                    <p><strong>Items:</strong> ${collectedFiles.length.toLocaleString()}</p>
                     <p style="margin-top: 15px;"><strong>Tap to download:</strong></p>
                     <div style="margin: 10px 0;">
                         ${downloadButtons}
                     </div>
-                    ${outputs.txt ? '<div class="preview">' + escapeHtml(outputs.txt) + '</div>' : ''}
+                    ${outputResult.outputs.txt ? '<div class="preview">' + escapeHtml(outputResult.outputs.txt.slice(0, 5000)) + (outputResult.outputs.txt.length > 5000 ? '\n\n... (truncated preview)' : '') + '</div>' : ''}
                 `;
                 
+                showProgress(false);
+                
             } catch (error) {
-                eventBus.emit('error', error);
+                showError(error.message);
             } finally {
                 btn.disabled = false;
+                btn.classList.remove('processing');
                 btn.textContent = '🚀 Generate Index';
             }
         }
         
-        // ==================== UTILITY FUNCTIONS ====================
-        
-        function downloadFileContent(content, filename, mimeType) {
-            try {
-                const blob = new Blob([content], { type: mimeType || 'text/plain' });
+        // Download file
+        function downloadFile(type) {
+            const content = window.generatedOutputs[type];
+            if (!content) return;
+            
+            const mimeTypes = {
+                json: 'application/json',
+                xml: 'application/xml',
+                txt: 'text/plain'
+            };
+            
+            const blob = new Blob([content], { type: mimeTypes[type] });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = filename;
-                a.style.display = 'none';
+            a.download = `directory_index.${type}`;
                 document.body.appendChild(a);
                 a.click();
                 
@@ -761,6 +957,7 @@
                     URL.revokeObjectURL(url);
                 }, 100);
                 
+            // Visual feedback
                 const btn = event.target;
                 const originalText = btn.textContent;
                 btn.textContent = '✅ Downloaded!';
@@ -769,39 +966,12 @@
                     btn.textContent = originalText;
                     btn.style.background = '';
                 }, 2000);
-            } catch (error) {
-                alert('Error downloading file: ' + error.message);
-            }
         }
         
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        function escapeXml(str) {
-            return str.replace(/[<>&'"]/g, char => {
-                switch (char) {
-                    case '<': return '&lt;';
-                    case '>': return '&gt;';
-                    case '&': return '&amp;';
-                    case "'": return '&apos;';
-                    case '"': return '&quot;';
-                }
-            });
-        }
-        
-        function showError(message) {
-            const result = document.getElementById('result');
-            result.className = 'show error';
-            result.innerHTML = `<h3>❌ Error</h3><p>${message}</p>`;
-        }
-        
-        // Service Worker registration
+        // Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('app/static/sw.js')
-                .catch(err => console.log('SW registration failed'));
+                .catch(err => console.log('SW registration skipped'));
         }
     </script>
 </body>
