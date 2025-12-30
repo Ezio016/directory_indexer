@@ -5,12 +5,15 @@ Creates hierarchical numbering (IP-style) for directory contents
 Outputs stored inside the indexed folder
 
 Usage:
-    reindex /path/to/folder              # All formats (TXT, JSON, XML)
-    reindex /path/to/folder -t           # TXT only
-    reindex /path/to/folder -j           # JSON only
-    reindex /path/to/folder -x           # XML only
-    reindex /path/to/folder -r "Name"    # Use custom name in output
-    reindex /path/to/folder -u           # Update existing index in folder
+    reindex /path                        # TXT only (default)
+    reindex /path "Custom Name"          # TXT with custom name
+    reindex /path -a                     # All formats (TXT, JSON, XML)
+    reindex /path -j                     # JSON only
+    reindex /path -x                     # XML only
+    reindex /path -j "Custom Name"       # JSON with custom name
+    reindex /path -rn "New Name"         # Rename in output
+    reindex /path -u                     # Update existing TXT
+    reindex /path -u "custom_index.txt"  # Update specific file
 """
 
 import os
@@ -172,56 +175,69 @@ class DirectoryIndexer:
         print(f"\nFound {self.item_count:,} items")
         return self.hierarchy
     
-    def check_existing(self) -> Dict[str, bool]:
-        """Check which index files already exist in the folder"""
-        existing = {
-            'txt': (self.root_path / "directory_index.txt").exists(),
-            'json': (self.root_path / "directory_index.json").exists(),
-            'xml': (self.root_path / "directory_index.xml").exists()
-        }
-        return existing
+    def find_existing_index(self, filename: str = None) -> Optional[Path]:
+        """Find existing index file in folder (not subdirectories)"""
+        if filename:
+            # Look for specific file
+            target = self.root_path / filename
+            if target.exists():
+                return target
+            return None
+        
+        # Look for default index files
+        for name in ["directory_index.txt", "directory_index.json", "directory_index.xml"]:
+            target = self.root_path / name
+            if target.exists():
+                return target
+        return None
     
-    def generate_outputs(self, formats: Dict[str, bool]):
-        """Generate output files inside the indexed folder"""
+    def generate_output(self, format_type: str, filename: str = None):
+        """Generate single output file"""
         if not self.hierarchy:
             print("No data. Run scan() first.")
-            return
+            return None
         
         data = {
             "root": self.display_name,
             "hierarchy": self.hierarchy
         }
         
-        output_dir = self.root_path
-        print(f"\nSaving to: {output_dir}")
+        # Determine filename and content
+        if format_type == 'txt':
+            content = generate_txt(data)
+            default_name = "directory_index.txt"
+        elif format_type == 'json':
+            content = generate_json(data)
+            default_name = "directory_index.json"
+        elif format_type == 'xml':
+            content = generate_xml(data)
+            default_name = "directory_index.xml"
+        else:
+            print(f"Unknown format: {format_type}")
+            return None
         
-        created_files = []
+        output_name = filename or default_name
+        output_path = self.root_path / output_name
         
-        if formats.get('txt', False):
-            txt_content = generate_txt(data)
-            txt_path = output_dir / "directory_index.txt"
-            with open(txt_path, 'w', encoding='utf-8') as f:
-                f.write(txt_content)
-            print(f"  Created: directory_index.txt")
-            created_files.append(txt_path)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(content)
         
-        if formats.get('json', False):
-            json_content = generate_json(data)
-            json_path = output_dir / "directory_index.json"
-            with open(json_path, 'w', encoding='utf-8') as f:
-                f.write(json_content)
-            print(f"  Created: directory_index.json")
-            created_files.append(json_path)
+        print(f"  Created: {output_name}")
+        return output_path
+    
+    def generate_all(self):
+        """Generate all formats"""
+        if not self.hierarchy:
+            print("No data. Run scan() first.")
+            return []
         
-        if formats.get('xml', False):
-            xml_content = generate_xml(data)
-            xml_path = output_dir / "directory_index.xml"
-            with open(xml_path, 'w', encoding='utf-8') as f:
-                f.write(xml_content)
-            print(f"  Created: directory_index.xml")
-            created_files.append(xml_path)
-        
-        return created_files
+        print(f"\nSaving to: {self.root_path}")
+        files = []
+        for fmt in ['txt', 'json', 'xml']:
+            path = self.generate_output(fmt)
+            if path:
+                files.append(path)
+        return files
 
 
 # ==================== CLI ====================
@@ -233,13 +249,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  reindex /path/to/folder              All formats (TXT, JSON, XML)
-  reindex /path/to/folder -t           TXT only
-  reindex /path/to/folder -j           JSON only
-  reindex /path/to/folder -x           XML only
-  reindex /path/to/folder -r "Name"    Use custom name in output
-  reindex /path/to/folder -u           Update existing index files
-  reindex /path/to/folder -u -t        Update TXT only
+  reindex /path                        TXT only (default)
+  reindex /path "Custom Name"          TXT with custom name
+  reindex /path -a                     All formats (TXT, JSON, XML)
+  reindex /path -j                     JSON only
+  reindex /path -x                     XML only
+  reindex /path -j "Custom Name"       JSON with custom name
+  reindex /path -rn "New Name"         Rename directory in output
+  reindex /path -u                     Update existing index
+  reindex /path -u "my_index.txt"      Update specific file
 """
     )
     
@@ -250,9 +268,15 @@ Examples:
     )
     
     parser.add_argument(
-        "-t",
+        "name",
+        nargs="?",
+        help="Optional custom name for output"
+    )
+    
+    parser.add_argument(
+        "-a",
         action="store_true",
-        help="TXT format only"
+        help="All formats (TXT, JSON, XML)"
     )
     
     parser.add_argument(
@@ -268,15 +292,17 @@ Examples:
     )
     
     parser.add_argument(
-        "-r",
+        "-rn",
         metavar="NAME",
-        help="Custom name for the directory in output"
+        help="Rename directory in output"
     )
     
     parser.add_argument(
         "-u",
-        action="store_true",
-        help="Update existing index files (checks parent folder only)"
+        nargs="?",
+        const="",
+        metavar="FILE",
+        help="Update existing index (optionally specify filename)"
     )
     
     args = parser.parse_args()
@@ -300,49 +326,65 @@ Examples:
         print(f"Error: Not a directory: {target_dir}")
         return 1
     
-    # Create indexer with optional custom name
-    indexer = DirectoryIndexer(target_dir, display_name=args.r)
+    # Determine display name
+    display_name = args.rn or args.name or None
     
-    # Determine formats
-    specific_format = args.t or args.j or args.x
+    # Create indexer
+    indexer = DirectoryIndexer(target_dir, display_name=display_name)
     
-    if args.u:
-        # Update mode: check what exists and update those
-        existing = indexer.check_existing()
-        
-        if specific_format:
-            # Update only specified formats
-            formats = {
-                'txt': args.t,
-                'json': args.j,
-                'xml': args.x
-            }
-        else:
-            # Update existing files, or create all if none exist
-            if any(existing.values()):
-                formats = existing
-                print(f"Updating existing: {', '.join(k.upper() for k, v in existing.items() if v)}")
-            else:
-                formats = {'txt': True, 'json': True, 'xml': True}
-                print("No existing index found, creating all formats")
-    elif specific_format:
-        formats = {
-            'txt': args.t,
-            'json': args.j,
-            'xml': args.x
-        }
-    else:
-        # Default: all formats
-        formats = {
-            'txt': True,
-            'json': True,
-            'xml': True
-        }
-    
-    # Run
     try:
-        indexer.scan()
-        indexer.generate_outputs(formats=formats)
+        # Update mode
+        if args.u is not None:
+            update_file = args.u if args.u else None
+            existing = indexer.find_existing_index(update_file)
+            
+            if existing:
+                print(f"Updating: {existing.name}")
+                indexer.scan()
+                
+                # Determine format from extension
+                ext = existing.suffix.lower()
+                if ext == '.txt':
+                    indexer.generate_output('txt', existing.name)
+                elif ext == '.json':
+                    indexer.generate_output('json', existing.name)
+                elif ext == '.xml':
+                    indexer.generate_output('xml', existing.name)
+                else:
+                    indexer.generate_output('txt', existing.name)
+            else:
+                if update_file:
+                    print(f"File not found: {update_file}")
+                    print("Creating new index...")
+                else:
+                    print("No existing index found, creating new...")
+                indexer.scan()
+                print(f"\nSaving to: {indexer.root_path}")
+                indexer.generate_output('txt')
+        
+        # All formats
+        elif args.a:
+            indexer.scan()
+            indexer.generate_all()
+        
+        # JSON only
+        elif args.j:
+            indexer.scan()
+            print(f"\nSaving to: {indexer.root_path}")
+            indexer.generate_output('json')
+        
+        # XML only
+        elif args.x:
+            indexer.scan()
+            print(f"\nSaving to: {indexer.root_path}")
+            indexer.generate_output('xml')
+        
+        # Default: TXT only
+        else:
+            indexer.scan()
+            print(f"\nSaving to: {indexer.root_path}")
+            indexer.generate_output('txt')
+        
         print("\nDone!")
         
     except KeyboardInterrupt:
