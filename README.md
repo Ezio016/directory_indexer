@@ -62,6 +62,32 @@ python directory_indexer.py /path/to/dir --no-xml --no-open -o ./results
    python directory_indexer.py ~/Documents --no-json --no-xml
    ```
 
+## 🌐 Web Interface (For iOS/iPad/Remote Access)
+
+Access the indexer from **any device** including iPhone, iPad, or remote computers:
+
+### Start the Web Server:
+
+```bash
+# Install Flask (one time only)
+pip3 install -r requirements.txt
+
+# Start the server
+python3 web_server.py
+```
+
+### Access from any device:
+
+1. **On the same network**: Open browser and go to `http://YOUR_IP:5000`
+2. **From iPhone/iPad**: See [IOS_SETUP.md](IOS_SETUP.md) for full guide
+3. Enter directory path, generate index, and download files
+
+**Features:**
+- 📱 Mobile-friendly interface
+- 🎨 Beautiful, modern UI
+- 💾 Direct download to device
+- 🔄 Works on all platforms
+
 ## Output Formats
 
 ### JSON Format
@@ -132,6 +158,18 @@ The script automatically creates a folder named `Items_in_[FolderName]` (where F
 
 - Python 3.6 or higher
 - No external dependencies (uses only standard library)
+- **Web interface**: Flask (optional, for iOS/web access)
+
+## Platform Support
+
+✅ **Desktop:**
+- macOS (tested)
+- Windows (cross-platform compatible)
+- Linux (cross-platform compatible)
+
+✅ **Mobile:**
+- iPhone/iPad via web interface
+- See [IOS_SETUP.md](IOS_SETUP.md) for detailed instructions
 
 ## Global Installation (Optional)
 

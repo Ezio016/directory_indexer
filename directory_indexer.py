@@ -158,14 +158,27 @@ class DirectoryIndexer:
         if txt_output:
             txt_path = self.generate_txt(output_dir)
         
-        # Auto-open the TXT file in Finder (macOS)
+        # Auto-open the TXT file (cross-platform)
         if auto_open and txt_path:
             try:
-                # Use -R to reveal in Finder, or -t to open as text
-                subprocess.run(['open', '-R', txt_path], check=False)
-                print(f"\n📂 Revealing TXT file in Finder...")
+                import platform
+                system = platform.system()
+                
+                if system == 'Darwin':  # macOS
+                    subprocess.run(['open', '-R', txt_path], check=False)
+                    print(f"\n📂 Revealing TXT file in Finder...")
+                elif system == 'Windows':
+                    subprocess.run(['explorer', '/select,', os.path.abspath(txt_path)], check=False)
+                    print(f"\n📂 Opening TXT file in Explorer...")
+                elif system == 'Linux':
+                    # Try xdg-open for Linux
+                    subprocess.run(['xdg-open', os.path.dirname(os.path.abspath(txt_path))], check=False)
+                    print(f"\n📂 Opening output folder...")
+                else:
+                    print(f"\n📂 Output saved to: {txt_path}")
             except Exception as e:
                 print(f"\nNote: Could not auto-open file: {e}")
+                print(f"Output saved to: {txt_path}")
     
     def _count_items(self, items):
         """Count total items recursively"""
